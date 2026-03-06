@@ -53,7 +53,6 @@ import * as yup from 'yup';
 
 import { useDispatch, useSelector } from 'react-redux';
 import { setCredentials } from './../../slices/authSlice';
-import Loader from './Loader';
 
 import axiosInstance from '../../axios';
 
@@ -216,17 +215,8 @@ const Login = () => {
       const templateParams = {
         email: email,
         name: name || 'User',
-        message: 'Welcome to Procto.ai! Thank you for choosing our platform for your secure examination needs.',
       };
-
-      await emailjs.send(
-        'service_oyq61no', 
-        'template_jkm48u1', 
-        templateParams, 
-        'wu6wPVpFFpcdRqWHo'
-      );
-      
-      console.log(`[SYSTEM] Welcome Email sent via EmailJS to: ${email}`);
+      await emailjs.send('service_oyq61no', 'template_jkm48u1', templateParams, 'wu6wPVpFFpcdRqWHo');
     } catch (error) {
       console.error("Failed to send welcome email via EmailJS", error);
     }
@@ -241,17 +231,21 @@ const Login = () => {
         const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
         const user = userCredential.user;
         
-        const idToken = await user.getIdToken();
-        const response = await axiosInstance.post('/api/users/login', { token: idToken });
+        // 🔥 FIXED: Send proper email & password to backend instead of just the token!
+        const response = await axiosInstance.post('/api/users/login', { 
+          email: values.email,
+          password: values.password 
+        });
 
         localStorage.setItem('token', response.data.token);
-        localStorage.setItem('userInfo', JSON.stringify(response.data.user || response.data));
+        localStorage.setItem('userInfo', JSON.stringify(response.data));
 
         dispatch(setCredentials({ 
           uid: user.uid, 
           email: user.email, 
           name: user.displayName || 'User',
-          role: response.data.role || 'student' 
+          role: response.data.role || 'student',
+          token: response.data.token
         }));
         
         formik.resetForm();
@@ -265,7 +259,7 @@ const Login = () => {
           navigate(getDashboardPath(response.data.role || 'student'), { replace: true });
         }
       } catch (err) {
-        const errMsg = err.code ? err.code.replace('auth/', '').replace(/-/g, ' ') : 'Invalid credentials';
+        const errMsg = err?.response?.data?.message || err.code?.replace('auth/', '').replace(/-/g, ' ') || 'Invalid credentials';
         showToast(errMsg, 'error');
       } finally {
         setIsLoading(false);
@@ -284,18 +278,22 @@ const Login = () => {
         sendWelcomeEmail(user.email, user.displayName);
       }
 
-      const idToken = await user.getIdToken();
-      const response = await axiosInstance.post('/api/users/login', { token: idToken });
+      // 🔥 FIXED: Google accounts register their UID as the password, so we use it here to login
+      const response = await axiosInstance.post('/api/users/login', { 
+        email: user.email,
+        password: user.uid 
+      });
 
       localStorage.setItem('token', response.data.token);
-      localStorage.setItem('userInfo', JSON.stringify(response.data.user || response.data));
+      localStorage.setItem('userInfo', JSON.stringify(response.data));
 
       dispatch(setCredentials({ 
         uid: user.uid, 
         email: user.email, 
         name: user.displayName,
         avatar: user.photoURL,
-        role: response.data.role || 'student'
+        role: response.data.role || 'student',
+        token: response.data.token
       }));
 
       showToast('Google Sign-In successful!', 'success');
@@ -305,10 +303,13 @@ const Login = () => {
       }, 500); 
       
     } catch (error) {
-      const errMsg = error.code === 'auth/popup-closed-by-user' 
-        ? 'Sign-in cancelled' 
-        : 'Google Sign-In failed. Please try again.';
-      showToast(errMsg, 'error');
+      if (error?.response?.status === 401) {
+        showToast('Account not found in Procto.ai. Please register first!', 'error');
+      } else {
+        const errMsg = error.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled' : 'Google Sign-In failed.';
+        showToast(errMsg, 'error');
+      }
+    } finally {
       setIsGoogleLoading(false); 
     }
   };
@@ -333,7 +334,7 @@ const Login = () => {
   };
 
   useEffect(() => {
-    if (userInfo) {
+    if (userInfo?.token) {
       navigate(getDashboardPath(userInfo.role), { replace: true });
     }
   }, [navigate, userInfo]);
