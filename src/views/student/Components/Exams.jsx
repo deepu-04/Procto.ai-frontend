@@ -6,6 +6,7 @@ import ExamCard from './ExamCard';
 import { useGetExamsQuery } from 'src/slices/examApiSlice';
 
 const Exams = () => {
+  // The token is now automatically attached to this request by your updated apiSlice!
   const { data: userExams = [], isLoading, isError, error } = useGetExamsQuery();
 
   // --- Dynamic Dark Mode State ---
