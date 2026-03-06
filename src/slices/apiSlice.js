@@ -1,13 +1,13 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
 const baseQuery = fetchBaseQuery({
-  baseUrl: 'http://localhost:5000/api',
-  credentials: 'include', // safe
-  prepareHeaders: (headers, { getState }) => {
-    const token = localStorage.getItem('token');
+  baseUrl: "https://procto-ai-backend.onrender.com/api",
+  credentials: "include",
+  prepareHeaders: (headers) => {
+    const token = localStorage.getItem("token");
 
     if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
+      headers.set("Authorization", `Bearer ${token}`);
     }
 
     return headers;
@@ -15,7 +15,8 @@ const baseQuery = fetchBaseQuery({
 });
 
 export const apiSlice = createApi({
+  reducerPath: "api",
   baseQuery,
-  tagTypes: ['Exam', 'Question', 'CheatingLog'],
+  tagTypes: ["Exam", "Question", "CheatingLog"],
   endpoints: () => ({}),
 });
