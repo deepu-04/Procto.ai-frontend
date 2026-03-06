@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const axiosInstance = axios.create({
-  baseURL: 'http://localhost:5000', // NO /api
+  baseURL: 'https://procto-ai-backend.onrender.com', // NO /api
   withCredentials: true,
 });
 

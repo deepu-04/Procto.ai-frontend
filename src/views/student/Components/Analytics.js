@@ -84,8 +84,29 @@ export default function Analytics() {
   const fetchLiveAnalytics = useCallback(async () => {
     try {
       setIsFetching(true);
-      const userInfo = JSON.parse(localStorage.getItem('userInfo'));
-      const userId = userInfo?._id || userInfo?.id; 
+      
+      // --- FIX: Safely retrieve userId from localStorage ---
+      const storedUserId = localStorage.getItem("userId");
+      let parsedUser = null;
+      
+      try {
+        const userInfoStr = localStorage.getItem('userInfo');
+        if (userInfoStr) {
+          parsedUser = JSON.parse(userInfoStr);
+        }
+      } catch (e) {
+        console.warn("Failed to parse userInfo from localStorage", e);
+      }
+
+      // Prioritize the direct "userId", fallback to parsed user IDs
+      const userId = storedUserId || parsedUser?._id || parsedUser?.id; 
+
+      if (!userId) {
+        setError("User session not found. Showing demo graphs.");
+        setIsFetching(false);
+        return; // Exit early if we don't have an ID to query
+      }
+      // -----------------------------------------------------
 
       const { data } = await axios.get(`http://localhost:5000/api/user/analytics-dashboard?userId=${userId}`);
       
@@ -117,13 +138,10 @@ export default function Analytics() {
   // =========================================================
   // 3. DYNAMIC KPI CALCULATION
   // =========================================================
-  // Automatically determine worst gap and top strength from the data arrays
   const getDynamicStats = () => {
     if (!skillGapData || skillGapData.length === 0) return { criticalGap: 'N/A', topStrength: 'N/A' };
     
-    // Sort to find largest gap (expected - actual)
     const worst = [...skillGapData].sort((a, b) => (b.expected - b.actual) - (a.expected - a.actual))[0];
-    // Sort to find highest actual score
     const best = [...skillGapData].sort((a, b) => b.actual - a.actual)[0];
 
     return {
@@ -141,7 +159,6 @@ export default function Analytics() {
     setIsAnalyzing(true);
     setAiInsights("");
 
-    // Simulate AI Processing time (In production, replace with axios.post to your OpenAI/Gemini backend)
     setTimeout(() => {
       const worst = [...skillGapData].sort((a, b) => (b.expected - b.actual) - (a.expected - a.actual))[0];
       const best = [...skillGapData].sort((a, b) => b.actual - a.actual)[0];
@@ -163,7 +180,6 @@ export default function Analytics() {
     }, 2000);
   };
 
-  // Auto-generate insights when live data finishes loading
   useEffect(() => {
     if (!isFetching) {
       generateAiAnalysis();
@@ -248,7 +264,7 @@ export default function Analytics() {
 
         {error && <Alert severity="info" sx={{mb: 4, borderRadius: '12px'}}>{error}</Alert>}
 
-        {/* KPI CARDS (Dynamically calculated based on current data) */}
+        {/* KPI CARDS */}
         <Grid container spacing={3} mb={5}>
           {[
             { label: "AI Exams Taken", val: totalExamsCount, icon: <TrackChangesRounded />, color: '#32D74B' },
@@ -266,11 +282,8 @@ export default function Analytics() {
           ))}
         </Grid>
 
-        {/* ========================================================= */}
-        {/* NEW: AI PERFORMANCE COACH SECTION */}
-        {/* ========================================================= */}
+        {/* AI PERFORMANCE COACH SECTION */}
         <Card sx={{ p: 4, borderRadius: '30px', bgcolor: themeConfig.card, backdropFilter: themeConfig.glass, border: themeConfig.border, mb: 5, boxShadow: 'none', position: 'relative', overflow: 'hidden' }}>
-          {/* Subtle gradient background for the AI card */}
           <Box sx={{ position: 'absolute', top: '-50%', right: '-10%', width: '50%', height: '200%', background: 'radial-gradient(ellipse at center, rgba(10, 132, 255, 0.15) 0%, rgba(0,0,0,0) 70%)', pointerEvents: 'none' }} />
           
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems="flex-start">
@@ -288,7 +301,6 @@ export default function Analytics() {
                 </Stack>
               ) : (
                 <Typography variant="body1" sx={{ color: themeConfig.secondaryText, mt: 1, lineHeight: 1.7, fontSize: '1.05rem' }}>
-                  {/* Dangerously set inner html allows us to render the bold markdown asterisks as real bold text */}
                   <span dangerouslySetInnerHTML={{ __html: aiInsights.replace(/\*\*(.*?)\*\*/g, `<strong style="color: ${themeConfig.text}">$1</strong>`) }} />
                 </Typography>
               )}
@@ -306,7 +318,6 @@ export default function Analytics() {
 
         {/* CHARTS */}
         <Grid container spacing={4} mb={5}>
-          {/* Performance Area Chart */}
           <Grid item xs={12} md={8}>
             <Card sx={{ p: 4, borderRadius: '30px', bgcolor: themeConfig.card, backdropFilter: themeConfig.glass, border: themeConfig.border, height: 450, boxShadow: 'none' }}>
               <Typography variant="h6" sx={{ color: themeConfig.text, fontWeight: 700, mb: 4 }}>Learning Curve</Typography>
@@ -328,7 +339,6 @@ export default function Analytics() {
             </Card>
           </Grid>
 
-          {/* Skill Gap Radar Chart */}
           <Grid item xs={12} md={4}>
             <Card sx={{ p: 4, borderRadius: '30px', bgcolor: themeConfig.card, backdropFilter: themeConfig.glass, border: themeConfig.border, height: 450, boxShadow: 'none' }}>
               <Typography variant="h6" sx={{ color: themeConfig.text, fontWeight: 700, mb: 2 }}>Subject Competency Map</Typography>
@@ -344,7 +354,7 @@ export default function Analytics() {
           </Grid>
         </Grid>
 
-        {/* BOTTOM SECTION: GAPS AND RECENT EXAMS */}
+        {/* BOTTOM SECTION */}
         <Grid container spacing={4}>
           <Grid item xs={12} md={5}>
             <Card sx={{ p: 4, borderRadius: '30px', bgcolor: themeConfig.card, backdropFilter: themeConfig.glass, border: themeConfig.border, minHeight: 350, boxShadow: 'none' }}>
@@ -381,7 +391,6 @@ export default function Analytics() {
             </Card>
           </Grid>
 
-          {/* ACTIVITY LIST */}
           <Grid item xs={12} md={7}>
             <Card sx={{ p: 4, borderRadius: '30px', bgcolor: themeConfig.card, backdropFilter: themeConfig.glass, border: themeConfig.border, minHeight: 350, boxShadow: 'none' }}>
               <Typography variant="h6" sx={{ color: themeConfig.text, fontWeight: 700, mb: 3 }}>Recent Subject Evaluations</Typography>
@@ -395,7 +404,6 @@ export default function Analytics() {
                             {exam.score ?? 0}
                           </Avatar>
                           <Box>
-                            {/* Real Exam Name/Subject displayed here */}
                             <Typography sx={{ color: themeConfig.text, fontWeight: 600 }}>{exam.name}</Typography>
                             <Typography variant="caption" sx={{ color: themeConfig.secondaryText }}>{exam.date} • ID: {exam.id}</Typography>
                           </Box>
