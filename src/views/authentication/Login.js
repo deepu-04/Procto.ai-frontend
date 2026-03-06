@@ -20,19 +20,16 @@ import {
 import { motion } from 'framer-motion';
 import { keyframes } from '@mui/system';
 
-// --- Firebase Authentication ---
 import { 
   signInWithEmailAndPassword, 
   signInWithPopup, 
   getAdditionalUserInfo,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { auth, googleProvider } from '../../firebase'; // Ensure this points to firebase.js
+import { auth, googleProvider } from '../../firebase'; 
 
-// --- EmailJS Integration ---
 import emailjs from '@emailjs/browser';
 
-// --- Proctoring & UI Icons ---
 import {
   VideocamOutlined,
   VisibilityOutlined,
@@ -45,7 +42,7 @@ import {
   CheckCircleOutline,
   CancelOutlined,
   Close as CloseIcon,
-  ArrowForwardIosRounded // Imported for the swipe animation
+  ArrowForwardIosRounded 
 } from '@mui/icons-material';
 
 import PageContainer from 'src/components/container/PageContainer';
@@ -58,7 +55,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { setCredentials } from './../../slices/authSlice';
 import Loader from './Loader';
 
-/* ================== ANIMATIONS ================== */
+import axiosInstance from '../../axios';
+
 const spin = keyframes`
   100% { transform: translate(-50%, -50%) rotate(360deg); }
 `;
@@ -66,7 +64,6 @@ const reverseSpin = keyframes`
   100% { transform: translate(-50%, -50%) rotate(-360deg); }
 `;
 
-/* ================== VALIDATION ================== */
 const userValidationSchema = yup.object({
   email: yup.string().email('Enter a valid email').required('Email is required'),
   password: yup.string().min(6).required('Password is required'),
@@ -77,12 +74,10 @@ const initialUserValues = {
   password: '',
 };
 
-// Transition for iOS-style Toast
 function SlideDownTransition(props) {
   return <Slide {...props} direction="down" />;
 }
 
-/* ================== SWIPE TO LOGIN COMPONENT (iOS STYLE) ================== */
 const SwipeToLogin = ({ onSwipeSuccess, isLoading }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(0);
@@ -91,7 +86,6 @@ const SwipeToLogin = ({ onSwipeSuccess, isLoading }) => {
   const THUMB_SIZE = 50;
   const PADDING = 4;
 
-  // Recalculate width dynamically for device rotation/resizing
   useEffect(() => {
     const updateWidth = () => {
       if (containerRef.current) {
@@ -129,7 +123,6 @@ const SwipeToLogin = ({ onSwipeSuccess, isLoading }) => {
         display: 'flex', alignItems: 'center', mt: 1
       }}
     >
-      {/* Text wrapper with animated arrows */}
       <Box 
         sx={{ 
           position: 'absolute', left: `${THUMB_SIZE + PADDING}px`, right: '16px', 
@@ -137,7 +130,6 @@ const SwipeToLogin = ({ onSwipeSuccess, isLoading }) => {
           opacity: swiped || isLoading ? 0 : 1, transition: 'opacity 0.3s ease'
         }}
       >
-        {/* Animated Chevron Arrows */}
         <Box sx={{ display: 'flex', alignItems: 'center', mr: 1.5 }}>
           {[0, 1, 2].map((i) => (
             <motion.div
@@ -180,7 +172,6 @@ const SwipeToLogin = ({ onSwipeSuccess, isLoading }) => {
         {isLoading ? (
           <CircularProgress size={22} sx={{ color: '#007AFF' }} />
         ) : (
-          /* Multi-colored Authentic Google Logo */
           <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ width: '24px', height: '24px' }}>
             <g>
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
@@ -206,7 +197,6 @@ const Login = () => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const { userInfo } = useSelector((state) => state.auth);
 
-  // States for Toast and Forgot Password Modal
   const [toast, setToast] = useState({ open: false, message: '', type: 'success' });
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
@@ -221,7 +211,6 @@ const Login = () => {
     return '/dashboard';
   };
 
-  // --- EMAIL.JS WELCOME EMAIL LOGIC ---
   const sendWelcomeEmail = async (email, name) => {
     try {
       const templateParams = {
@@ -230,7 +219,6 @@ const Login = () => {
         message: 'Welcome to Procto.ai! Thank you for choosing our platform for your secure examination needs.',
       };
 
-      // REPLACE THESE WITH YOUR ACTUAL EMAILJS CREDENTIALS
       await emailjs.send(
         'service_oyq61no', 
         'template_jkm48u1', 
@@ -244,7 +232,6 @@ const Login = () => {
     }
   };
 
-  // --- FIREBASE EMAIL/PASSWORD LOGIN ---
   const formik = useFormik({
     initialValues: initialUserValues,
     validationSchema: userValidationSchema,
@@ -253,12 +240,18 @@ const Login = () => {
       try {
         const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
         const user = userCredential.user;
+        
+        const idToken = await user.getIdToken();
+        const response = await axiosInstance.post('/api/users/login', { token: idToken });
+
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('userInfo', JSON.stringify(response.data.user || response.data));
 
         dispatch(setCredentials({ 
           uid: user.uid, 
           email: user.email, 
           name: user.displayName || 'User',
-          role: 'student' 
+          role: response.data.role || 'student' 
         }));
         
         formik.resetForm();
@@ -269,7 +262,7 @@ const Login = () => {
           localStorage.removeItem('redirectLocation');
           navigate(redirectLocation.pathname, { replace: true });
         } else {
-          navigate(getDashboardPath('student'), { replace: true });
+          navigate(getDashboardPath(response.data.role || 'student'), { replace: true });
         }
       } catch (err) {
         const errMsg = err.code ? err.code.replace('auth/', '').replace(/-/g, ' ') : 'Invalid credentials';
@@ -280,7 +273,6 @@ const Login = () => {
     },
   });
 
-  // --- FIREBASE GOOGLE LOGIN WITH SWIPE ---
   const handleGoogleSwipeLogin = async () => {
     setIsGoogleLoading(true);
     try {
@@ -292,18 +284,24 @@ const Login = () => {
         sendWelcomeEmail(user.email, user.displayName);
       }
 
+      const idToken = await user.getIdToken();
+      const response = await axiosInstance.post('/api/users/login', { token: idToken });
+
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('userInfo', JSON.stringify(response.data.user || response.data));
+
       dispatch(setCredentials({ 
         uid: user.uid, 
         email: user.email, 
         name: user.displayName,
         avatar: user.photoURL,
-        role: 'student'
+        role: response.data.role || 'student'
       }));
 
       showToast('Google Sign-In successful!', 'success');
       
       setTimeout(() => {
-        navigate(getDashboardPath('student'), { replace: true });
+        navigate(getDashboardPath(response.data.role || 'student'), { replace: true });
       }, 500); 
       
     } catch (error) {
@@ -315,7 +313,6 @@ const Login = () => {
     }
   };
 
-  // --- FIREBASE FORGOT PASSWORD LOGIC ---
   const handlePasswordReset = async () => {
     if (!resetEmail) {
       showToast('Please enter your email address.', 'error');
@@ -341,7 +338,6 @@ const Login = () => {
     }
   }, [navigate, userInfo]);
 
-  /* ================== ORBIT COMPONENT ================== */
   const OrbitRing = ({ size, duration, icons }) => (
     <Box
       sx={{
@@ -378,8 +374,6 @@ const Login = () => {
 
   return (
     <PageContainer title="Login" description="Login to Procto.ai">
-      
-      {/* ================= iOS STYLE TOAST NOTIFICATION ================= */}
       <Snackbar
         open={toast.open}
         autoHideDuration={4000}
@@ -406,7 +400,6 @@ const Login = () => {
         </Box>
       </Snackbar>
 
-      {/* ================= FORGOT PASSWORD MODAL ================= */}
       <Dialog 
         open={forgotPasswordOpen} 
         onClose={() => setForgotPasswordOpen(false)}
@@ -446,16 +439,15 @@ const Login = () => {
         </Button>
       </Dialog>
 
-      {/* ================= MAIN LOGIN UI (STRICT 100VH NO SCROLL) ================= */}
       <Box
         sx={{
-          height: '100dvh', // Strict height
+          height: '100dvh', 
           width: '100vw',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           background: 'linear-gradient(135deg, #F4F7FC 0%, #E9F0FA 100%)', 
-          overflow: 'hidden', // Prevents scrolling entirely
+          overflow: 'hidden', 
           p: { xs: 2, sm: 3, md: 4 }, 
         }}
       >
@@ -463,9 +455,8 @@ const Login = () => {
           initial={{ opacity: 0, y: 20, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.6, ease: 'easeOut' }}
-          style={{ width: '100%', maxWidth: '1000px', position: 'relative', zIndex: 2 }} // Increased width
+          style={{ width: '100%', maxWidth: '1000px', position: 'relative', zIndex: 2 }} 
         >
-          {/* iOS Style Glassmorphism Card */}
           <Card
             elevation={0}
             sx={{
@@ -475,10 +466,9 @@ const Login = () => {
               overflow: 'hidden',
               boxShadow: '0 20px 50px rgba(0,0,0,0.06)',
               background: '#FFFFFF',
-              minHeight: { xs: 'auto', md: '560px' }, // Slightly taller to match new width proportions
+              minHeight: { xs: 'auto', md: '560px' }, 
             }}
           >
-            {/* ================== LEFT SIDE: LOGIN FORM ================== */}
             <Box
               sx={{
                 flex: 1,
@@ -488,7 +478,6 @@ const Login = () => {
                 justifyContent: 'center',
               }}
             >
-              {/* Increased maxWidth to 380px for wider textfields and slider */}
               <Stack spacing={2.5} maxWidth={380} mx="auto" w="100%"> 
                 <Box display="flex" justifyContent="center" mb={0}>
                   <Logo />
@@ -503,10 +492,7 @@ const Login = () => {
                   </Typography>
                 </Box>
 
-                {/* --- CUSTOM iOS STYLE INLINE FORM --- */}
                 <Box component="form" onSubmit={formik.handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  
-                  {/* Email Field */}
                   <Box>
                     <Typography variant="caption" fontWeight="700" color="#1E293B" sx={{ ml: 1, mb: 0.5, display: 'block' }}>Email</Typography>
                     <InputBase
@@ -536,7 +522,6 @@ const Login = () => {
                     )}
                   </Box>
 
-                  {/* Password Field */}
                   <Box>
                     <Box display="flex" justifyContent="space-between" alignItems="center" px={1} mb={0.5}>
                       <Typography variant="caption" fontWeight="700" color="#1E293B">Password</Typography>
@@ -578,7 +563,6 @@ const Login = () => {
                     )}
                   </Box>
 
-                  {/* Submit Button */}
                   <Button 
                     type="submit" 
                     variant="contained" 
@@ -599,7 +583,6 @@ const Login = () => {
                   </Button>
                 </Box>
 
-                {/* --- SWIPE TO LOGIN DRAGGABLE COMPONENT --- */}
                 <Box mt={1}>
                   <Divider sx={{ mb: 2, fontSize: '0.8rem', color: 'text.secondary' }}>
                     Or continue with
@@ -628,7 +611,6 @@ const Login = () => {
               </Stack>
             </Box>
 
-            {/* ================== RIGHT SIDE: ANIMATED ORBIT ================== */}
             {isMdUp && (
               <Box
                 sx={{
@@ -670,7 +652,6 @@ const Login = () => {
                     </Typography>
                   </Box>
 
-                  {/* Appropriately scaled rings */}
                   <OrbitRing
                     size={160} duration={15}
                     icons={[

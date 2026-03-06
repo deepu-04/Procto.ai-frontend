@@ -32,7 +32,7 @@ import {
   signInWithPopup, 
   getAdditionalUserInfo 
 } from 'firebase/auth';
-import { auth, googleProvider } from '../../firebase'; // Ensure this points to firebase.js
+import { auth, googleProvider } from '../../firebase'; 
 
 // --- EmailJS Integration ---
 import emailjs from '@emailjs/browser';
@@ -64,7 +64,9 @@ import * as yup from 'yup';
 
 import { useDispatch, useSelector } from 'react-redux';
 import { setCredentials } from './../../slices/authSlice';
-import { useRegisterMutation } from './../../slices/usersApiSlice'; 
+
+// FIXED IMPORT: Path points directly to the file next to firebase.js
+import axiosInstance from '../../axios'; 
 
 /* ================== ANIMATIONS ================== */
 const spin = keyframes`
@@ -208,9 +210,6 @@ export default function Register() {
   // Safely access auth state
   const authState = useSelector((s) => s.auth);
   const userInfo = authState?.userInfo || null;
-  
-  // Backend Register Mutation
-  const [registerBackend] = useRegisterMutation();
 
   // iOS Style Toast State
   const [toast, setToast] = useState({ open: false, message: '', type: 'success' });
@@ -231,10 +230,9 @@ export default function Register() {
     }
   }, [userInfo, navigate]);
 
-  // --- 🔥 FIXED: EMAIL.JS WELCOME EMAIL LOGIC ---
+  // --- EMAIL.JS WELCOME EMAIL LOGIC ---
   const sendWelcomeEmail = async (userEmail, userName) => {
     try {
-      // These keys MUST perfectly match the {{variables}} in your EmailJS template
       const templateParams = {
         email: userEmail,
         name: userName || 'User',
@@ -276,21 +274,26 @@ export default function Register() {
         // 3. Get secure JWT token for backend authorization
         const token = await user.getIdToken();
 
-        // 4. Sync with custom Backend
+        // 4. Sync with custom Backend via unified Axios Instance
         let backendToken = null;
         try {
-          const res = await registerBackend({
+          const res = await axiosInstance.post('/api/users/register', {
             name: values.name,
             email: values.email,
             password: values.password,
-            role: values.role
-          }).unwrap();
-          backendToken = res.token; 
+            role: values.role,
+            token: token // Attach Firebase token if backend requires validation
+          });
+          backendToken = res.data.token; 
+          
+          // Save tokens instantly
+          localStorage.setItem('token', backendToken || token);
         } catch (backendErr) {
           console.warn("Backend sync warning:", backendErr);
+          localStorage.setItem('token', token);
         }
 
-        // 5. Send Welcome Email (AWAITED to prevent cancellation during navigation)
+        // 5. Send Welcome Email 
         await sendWelcomeEmail(user.email, values.name);
 
         const userPayload = {
@@ -342,22 +345,24 @@ export default function Register() {
 
       const details = getAdditionalUserInfo(result);
       
-      // AWAITED to prevent cancellation during navigation
       if (details && details.isNewUser) {
         await sendWelcomeEmail(user.email, user.displayName);
       }
 
       let backendToken = null;
       try {
-        const res = await registerBackend({
+        const res = await axiosInstance.post('/api/users/register', {
           name: user.displayName,
           email: user.email,
           password: user.uid, 
-          role: selectedRole
-        }).unwrap();
-        backendToken = res.token;
+          role: selectedRole,
+          token: token
+        });
+        backendToken = res.data.token;
+        localStorage.setItem('token', backendToken || token);
       } catch (backendErr) {
         console.warn("Backend sync warning:", backendErr);
+        localStorage.setItem('token', token);
       }
 
       const userPayload = {
@@ -427,7 +432,6 @@ export default function Register() {
   return (
     <PageContainer title="Register" description="Create an account on Procto.ai">
       
-      {/* ================= iOS STYLE TOAST NOTIFICATION ================= */}
       <Snackbar
         open={toast.open}
         autoHideDuration={4000}
@@ -454,7 +458,6 @@ export default function Register() {
         </Box>
       </Snackbar>
 
-      {/* ================= iOS ROLE SELECTION MODAL (GOOGLE AUTH) ================= */}
       <Dialog 
         open={roleDialogOpen} 
         onClose={cancelGoogleLogin}
@@ -495,7 +498,6 @@ export default function Register() {
         </Button>
       </Dialog>
 
-      {/* ================= MAIN REGISTER UI ================= */}
       <Box
         sx={{
           minHeight: '100dvh', 
@@ -527,7 +529,6 @@ export default function Register() {
               minHeight: { xs: 'auto', md: '600px' }, 
             }}
           >
-            {/* ================== LEFT SIDE: REGISTER FORM ================== */}
             <Box
               sx={{
                 flex: 1,
@@ -554,7 +555,6 @@ export default function Register() {
                 <form onSubmit={formik.handleSubmit}>
                   <Stack spacing={2}>
                     
-                    {/* Name Field */}
                     <Box>
                       <Typography variant="caption" fontWeight="700" color="#1E293B" sx={{ ml: 1, mb: 0.5, display: 'block' }}>Full Name</Typography>
                       <InputBase
@@ -577,7 +577,6 @@ export default function Register() {
                       )}
                     </Box>
 
-                    {/* Email Field */}
                     <Box>
                       <Typography variant="caption" fontWeight="700" color="#1E293B" sx={{ ml: 1, mb: 0.5, display: 'block' }}>Email</Typography>
                       <InputBase
@@ -600,7 +599,6 @@ export default function Register() {
                       )}
                     </Box>
 
-                    {/* Password Fields Row */}
                     <Box display="flex" gap={2}>
                       <Box flex={1}>
                         <Typography variant="caption" fontWeight="700" color="#1E293B" sx={{ ml: 1, mb: 0.5, display: 'block' }}>Password</Typography>
@@ -654,7 +652,6 @@ export default function Register() {
                       </Typography>
                     ) : null}
 
-                    {/* Role Selection */}
                     <FormControl component="fieldset" sx={{ mt: 0.5, ml: 1 }}>
                       <FormLabel component="legend" sx={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748B', mb: 0.5 }}>
                         Register as
@@ -685,7 +682,6 @@ export default function Register() {
                   </Stack>
                 </form>
 
-                {/* --- SWIPE TO LOGIN DRAGGABLE COMPONENT --- */}
                 <Box mt={0}>
                   <Divider sx={{ mb: 2, fontSize: '0.8rem', color: 'text.secondary' }}>
                     Or register with
@@ -713,7 +709,6 @@ export default function Register() {
               </Stack>
             </Box>
 
-            {/* ================== RIGHT SIDE: ANIMATED ORBIT ================== */}
             {isMdUp && (
               <Box
                 sx={{
