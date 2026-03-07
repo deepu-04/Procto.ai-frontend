@@ -303,7 +303,6 @@ export default function Register() {
         await sendWelcomeEmail(user.email, user.displayName);
       }
 
-      // 🔥 FIXED: Google accounts now hit the unified backend route
       const res = await axiosInstance.post('/api/users/google', {
         name: user.displayName,
         email: user.email,
@@ -313,12 +312,17 @@ export default function Register() {
       
       const backendToken = res.data.token;
 
+      // 🔥 FIX: Always use the role returned by the backend!
+      // If the user already existed in the DB as a 'student', the backend will return 'student',
+      // even if they accidentally clicked 'teacher' on the Google prompt today.
+      const trueRole = res.data.role || selectedRole;
+
       const userPayload = {
         uid: user.uid, 
         email: user.email, 
         name: user.displayName,
         avatar: user.photoURL,
-        role: res.data.role, 
+        role: trueRole, 
         token: backendToken
       };
 
@@ -326,8 +330,13 @@ export default function Register() {
       localStorage.setItem('userInfo', JSON.stringify(userPayload));
       dispatch(setCredentials(userPayload));
 
-      showToast(`Logged in successfully!`, 'success');
-      navigate(getDashboardPath(res.data.role), { replace: true });
+      if (trueRole !== selectedRole && !details.isNewUser) {
+         showToast(`Logged in successfully! (Note: Your account is registered as a ${trueRole})`, 'success');
+      } else {
+         showToast(`Logged in successfully!`, 'success');
+      }
+
+      navigate(getDashboardPath(trueRole), { replace: true });
       
     } catch (error) {
       const errMsg = error.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled' : 'Google Sign-In failed.';

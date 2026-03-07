@@ -278,12 +278,12 @@ const Login = () => {
         sendWelcomeEmail(user.email, user.displayName);
       }
 
-      // 🔥 FIXED: Google accounts now hit the unified backend route
+      // Google accounts now hit the unified backend route
       const response = await axiosInstance.post('/api/users/google', { 
         name: user.displayName,
         email: user.email,
         uid: user.uid,
-        role: 'student' // Default fallback, backend will use existing role if logging in
+        role: 'student' // Fallback for brand new accounts created here
       });
 
       localStorage.setItem('token', response.data.token);
@@ -294,7 +294,7 @@ const Login = () => {
         email: user.email, 
         name: user.displayName,
         avatar: user.photoURL,
-        role: response.data.role, // Uses role retrieved from DB
+        role: response.data.role, // Securely uses role retrieved from DB
         token: response.data.token
       }));
 
