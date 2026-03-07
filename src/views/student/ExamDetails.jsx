@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -26,7 +26,7 @@ import {
   IconShieldCheck,
   IconScanEye,
 } from '@tabler/icons-react';
-import MobileOffIcon from '@mui/icons-material/MobileOff'; // Added Mobile Restriction Icon
+import MobileOffIcon from '@mui/icons-material/MobileOff';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { useSelector } from 'react-redux';
@@ -172,7 +172,7 @@ const ChecklistItem = ({ icon, title, subtitle, status, progress }) => {
 };
 
 /* ================= MAIN COMPONENT ================= */
-export default function ExamDetails() {
+export default function TestPage() {
   const navigate = useNavigate();
   const { examId } = useParams();
   const { userInfo } = useSelector((state) => state.auth);
@@ -271,35 +271,96 @@ export default function ExamDetails() {
     };
   }, []);
 
-  /* --- 1. STRICT Hardware Check (Camera & Mic via getUserMedia) --- */
+  /* --- 1. ENHANCED HARDWARE CHECK (Hardware Switches & Shutter Detection) --- */
   const checkHardware = async () => {
     updateCheck('camera', 'loading');
     updateCheck('audio', 'loading');
     
-    // Give UI a moment to show loading state
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1000)); // UI delay for feel
 
     try {
-      // Actively request permissions. Fails if hardware switch is off or denied.
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      mediaStreamRef.current = stream; // Save ref to stop it later
+      mediaStreamRef.current = stream; 
 
-      // Strictly check if tracks actually exist and are enabled
-      const hasVideo = stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
-      const hasAudio = stream.getAudioTracks().length > 0 && stream.getAudioTracks()[0].enabled;
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
 
-      if (hasVideo && hasAudio) {
-        updateCheck('camera', 'success');
-        updateCheck('audio', 'success');
-        return true;
-      } else {
-        throw new Error('Hardware tracks missing or disabled');
+      if (!videoTrack || !audioTrack) {
+        throw new Error('Hardware tracks missing. Please ensure your camera and microphone are plugged in.');
       }
+
+      // Step 1: Wait to allow OS to apply hardware switch statuses (mute states)
+      await new Promise((r) => setTimeout(r, 800));
+
+      // Step 2: Check for Laptop Hardware Switches (e.g., Fn + F4 Mic Mute, or Camera Kill Switch)
+      // Browsers set the track to 'muted' if hardware denies the feed despite software permissions
+      if (videoTrack.muted) {
+        throw new Error('Camera is disabled by a hardware switch or OS privacy settings.');
+      }
+      if (audioTrack.muted) {
+        throw new Error('Microphone is disabled by a hardware switch or OS privacy settings.');
+      }
+
+      // Step 3: Check for Physical Shutter Cover (Black Frame Detection)
+      const isCameraCovered = await new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.playsInline = true;
+        video.srcObject = new MediaStream([videoTrack]);
+        
+        video.onloadeddata = async () => {
+          // Wait for camera auto-exposure to adjust
+          await new Promise((r) => setTimeout(r, 600));
+          
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let blackPixels = 0;
+            const totalPixels = frameData.length / 4;
+            
+            for (let i = 0; i < frameData.length; i += 4) {
+              // Check if pixel is extremely dark (accounting for slight sensor noise)
+              if (frameData[i] < 15 && frameData[i + 1] < 15 && frameData[i + 2] < 15) {
+                blackPixels++;
+              }
+            }
+            
+            video.pause();
+            video.srcObject = null;
+            
+            // If more than 98% of the camera feed is pure black, the physical shutter is closed
+            if (blackPixels / totalPixels > 0.98) {
+              resolve(true); // Covered
+            } else {
+              resolve(false); // Clear
+            }
+          } catch (e) {
+            // Fallback to pass if canvas analysis fails due to cross-origin or unsupported constraints
+            resolve(false); 
+          }
+        };
+        
+        video.onerror = () => resolve(false);
+      });
+
+      if (isCameraCovered) {
+        throw new Error('Camera lens appears to be covered or physical shutter is closed.');
+      }
+
+      updateCheck('camera', 'success');
+      updateCheck('audio', 'success');
+      return true;
+
     } catch (err) {
       console.error("Hardware check failed:", err);
       updateCheck('camera', 'error');
       updateCheck('audio', 'error');
-      toast.error('Camera or Microphone access denied. Please turn them on to proceed.');
+      toast.error(err.message || 'Camera or Microphone access denied. Please check your hardware.');
       return false; // Blocks the exam from continuing
     }
   };
@@ -608,7 +669,7 @@ export default function ExamDetails() {
                       checks.camera === 'success'
                         ? 'Hardware access granted'
                         : checks.camera === 'error'
-                        ? 'Permissions denied by user'
+                        ? 'Permissions denied or hardware disabled'
                         : 'Awaiting hardware check...'
                     }
                   />

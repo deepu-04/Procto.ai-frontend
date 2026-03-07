@@ -19,12 +19,11 @@ import VpnLockIcon from '@mui/icons-material/VpnLock';
 import RouterIcon from '@mui/icons-material/Router';
 import WebCam from './Components/WebCam';
 import { useGetExamsQuery, useGetQuestionsQuery } from '../../slices/examApiSlice';
-import { useSaveCheatingLogMutation } from 'src/slices/cheatingLogApiSlice';
+import { useSaveCheatingLogMutation } from '../../slices/cheatingLogApiSlice';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
-import { useCheatingLog } from 'src/context/CheatingLogContext';
-
-const NETWORK_CHECK_URL = 'http://localhost:5000/api/network/check';
+import { useCheatingLog } from '../../context/CheatingLogContext';
+import axiosInstance from '../../axios'; // Added to securely hit relative backend paths
 
 // --- Dynamic Screen Watermarking ---
 const WatermarkOverlay = ({ userInfo }) => {
@@ -80,7 +79,11 @@ const TestPage = () => {
   const lastKeyTimeRef = useRef(Date.now());
   const lastViolationTimesRef = useRef({});
   const loggedViolationsRef = useRef(new Set());
-  const initialIpRef = useRef(null);
+  
+  // FIX: Separated IP tracking refs to prevent IPv4 vs IPv6 mismatches causing false VPN flags
+  const initialWebrtcIpRef = useRef(null);
+  const initialIpifyIpRef = useRef(null);
+  
   const cheatingLogRef = useRef({});
   const hasAutoSubmittedRef = useRef(false);
 
@@ -271,9 +274,9 @@ const TestPage = () => {
         const isPrivate = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.)/.test(detectedIp);
 
         if (!isPrivate) {
-          if (!initialIpRef.current) {
-            initialIpRef.current = detectedIp;
-          } else if (initialIpRef.current !== detectedIp) {
+          if (!initialWebrtcIpRef.current) {
+            initialWebrtcIpRef.current = detectedIp;
+          } else if (initialWebrtcIpRef.current !== detectedIp) {
             setMultipleIpDetected(true);
             registerViolation(
               'MULTIPLE_IPS',
@@ -291,13 +294,14 @@ const TestPage = () => {
   // --- Realtime Public IP Monitor ---
   const monitorPublicIP = async () => {
     try {
-      const res = await fetch('https://api64.ipify.org?format=json');
+      // FIX: Force API to return IPv4 to prevent mismatches
+      const res = await fetch('https://api.ipify.org?format=json');
       const data = await res.json();
       const currentIp = data.ip;
 
-      if (!initialIpRef.current) {
-        initialIpRef.current = currentIp;
-      } else if (initialIpRef.current !== currentIp) {
+      if (!initialIpifyIpRef.current) {
+        initialIpifyIpRef.current = currentIp;
+      } else if (initialIpifyIpRef.current !== currentIp) {
         setVpnDetected(true);
         registerViolation(
           'VPN_DETECTED',
@@ -476,22 +480,25 @@ const TestPage = () => {
         monitorPublicIP();
 
         try {
-          const res = await fetch(NETWORK_CHECK_URL, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-          });
-          const result = await res.json();
-          if (result && (result.vpnDetected === true || result.networkRisk?.vpn === true)) {
+          // FIX: Secure backend call replacing the hardcoded http://localhost:5000 
+          // Softened to prevent false-positives triggered by hosted reverse proxies
+          const res = await axiosInstance.get('/network/check');
+          const result = res.data;
+          
+          if (result && result.ipChanged === true) {
             setVpnDetected(true);
             registerViolation(
               'VPN_DETECTED',
-              'Active VPN or Proxy detected by backend',
+              'Active VPN or network routing change detected',
               'critical',
               40,
             );
-          } else if (result && (result.networkRisk?.risk >= 70 || result.ipChanged === true)) {
+          } else if (result && result.networkRisk?.risk >= 85) {
             registerViolation('NETWORK_RISK', 'Suspicious network routing', 'high', 25);
           }
-        } catch {}
+        } catch (err) {
+            // Silently fail if endpoint is down, rely on frontend monitorPublicIP instead
+        }
       }, 10000);
     } catch {
       toast.error('Fullscreen access required.');
@@ -544,6 +551,11 @@ const TestPage = () => {
       await saveCheatingLogMutation(payload).unwrap();
 
       toast.success('Exam submitted successfully');
+      
+      // Ensure fullscreen is closed smoothly
+      if (document.fullscreenElement) {
+        await document.exitFullscreen().catch(err => console.log(err));
+      }
 
       navigate('/success');
     } catch (error) {
