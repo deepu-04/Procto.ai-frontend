@@ -40,11 +40,9 @@ import {
   IconEye,
   IconEyeOff,
   IconCode,
-  IconFilter,
-  IconCrown, // Swapped to Crown
+  IconCrown, 
 } from '@tabler/icons-react';
 import PageContainer from 'src/components/container/PageContainer';
-import DashboardCard from '../../components/shared/DashboardCard';
 import axiosInstance from '../../axios';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
@@ -103,7 +101,7 @@ const TypewriterText = ({ text, isDark }) => {
       setDisplayedText(text.slice(0, i + 1));
       i++;
       if (i >= text.length) clearInterval(timer);
-    }, 100); // Adjust typing speed here
+    }, 100); 
     return () => clearInterval(timer);
   }, [text]);
 
@@ -182,8 +180,12 @@ const ResultPage = () => {
 
   const fetchExams = useCallback(async () => {
     try {
-      const response = await axiosInstance.get(API_ENDPOINTS.getExams, { withCredentials: true });
-      setExams(response.data || []);
+      const token = localStorage.getItem('token');
+      const response = await axiosInstance.get(API_ENDPOINTS.getExams, { 
+        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true 
+      });
+      setExams(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
       console.error('Failed to fetch exams:', err);
     }
@@ -193,17 +195,22 @@ const ResultPage = () => {
     try {
       setLoading(true);
       setError(null);
-      let endpoint =
-        userInfo?.role === 'teacher' ? API_ENDPOINTS.getAllResults : API_ENDPOINTS.getUserResults;
-      const response = await axiosInstance.get(endpoint, { withCredentials: true });
-      const resultsData = response.data?.data || response.data || [];
-      const sortedData = resultsData.sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
+      const token = localStorage.getItem('token');
+      const endpoint = userInfo?.role === 'teacher' ? API_ENDPOINTS.getAllResults : API_ENDPOINTS.getUserResults;
+      
+      const response = await axiosInstance.get(endpoint, { 
+        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true 
+      });
+      
+      const rawData = response.data?.data || response.data || [];
+      const resultsData = Array.isArray(rawData) ? rawData : []; // Safety check to prevent .sort() crash
+      const sortedData = [...resultsData].sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
 
       setResults(sortedData);
       setFilteredResults(sortedData);
     } catch (err) {
-      const errorMessage =
-        err.response?.data?.message || err.response?.data?.error || 'Failed to fetch results';
+      const errorMessage = err.response?.data?.message || err.response?.data?.error || 'Failed to fetch results';
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -226,10 +233,11 @@ const ResultPage = () => {
 
   useEffect(() => {
     let filtered = [...results];
-    if (selectedExam !== 'all')
+    if (selectedExam !== 'all') {
       filtered = filtered.filter(
         (r) => r.examId?._id === selectedExam || r.examId === selectedExam,
       );
+    }
     if (searchTerm.trim()) {
       const search = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -239,9 +247,12 @@ const ResultPage = () => {
           r.examId?.examName?.toLowerCase().includes(search),
       );
     }
-    if (selectedTab === 1)
+    if (selectedTab === 1) {
       filtered = filtered.filter((r) => r.mcqScore !== undefined || r.percentage !== undefined);
-    if (selectedTab === 2) filtered = filtered.filter((r) => r.codingSubmissions?.length > 0);
+    }
+    if (selectedTab === 2) {
+      filtered = filtered.filter((r) => r.codingSubmissions?.length > 0);
+    }
 
     setFilteredResults(filtered);
     setPage(0);
@@ -251,9 +262,9 @@ const ResultPage = () => {
     page * rowsPerPage,
     page * rowsPerPage + rowsPerPage,
   );
+  
   const topPerformers = useMemo(
-    () =>
-      [...filteredResults].sort((a, b) => (b.percentage || 0) - (a.percentage || 0)).slice(0, 3),
+    () => [...filteredResults].sort((a, b) => (b.percentage || 0) - (a.percentage || 0)).slice(0, 3),
     [filteredResults],
   );
 
@@ -285,12 +296,14 @@ const ResultPage = () => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
   };
+  
   const handleRefresh = () => {
     setRefreshing(true);
     setAnimatePodium(false);
     fetchResults();
     fetchExams();
   };
+  
   const handleViewCode = (result) => {
     setSelectedResult(result);
     setCodeDialogOpen(true);
@@ -298,10 +311,14 @@ const ResultPage = () => {
 
   const handleToggleVisibility = async (resultId) => {
     try {
+      const token = localStorage.getItem('token');
       await axiosInstance.put(
         API_ENDPOINTS.toggleVisibility(resultId),
         {},
-        { withCredentials: true },
+        { 
+          headers: { Authorization: `Bearer ${token}` },
+          withCredentials: true 
+        },
       );
       toast.success('Visibility updated');
       setResults((prev) =>
@@ -341,14 +358,13 @@ const ResultPage = () => {
         }}
       >
         <Box display="flex" flexDirection="column" alignItems="center" mb={1}>
-          {/* Rotating Crown for 1st Place */}
           {rank === 1 && (
             <IconCrown
               size={54}
               stroke={1.5}
               style={{
                 color: '#FBBF24',
-                marginBottom: -18, // Overlaps the avatar smoothly
+                marginBottom: -18,
                 zIndex: 10,
                 position: 'relative',
                 animation: `${rotate3D} 3.5s linear infinite`,
@@ -423,7 +439,6 @@ const ResultPage = () => {
   };
 
   const LeaderboardPodium = () => {
-    // Determine the title text based on user role and name
     const titleText =
       userInfo?.role === 'teacher'
         ? 'Overall Class Performance'
@@ -449,7 +464,6 @@ const ResultPage = () => {
           gutterBottom
           sx={{ minHeight: '1.2em', display: 'flex', justifyContent: 'center' }}
         >
-          {/* Typewriter Effect Applied Here */}
           <TypewriterText text={titleText} isDark={isDark} />
         </Typography>
         <Typography variant="subtitle1" sx={{ color: isDark ? '#94A3B8' : 'textSecondary', transition: 'color 0.3s' }} mb={6}>
