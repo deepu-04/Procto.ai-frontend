@@ -11,6 +11,7 @@ import {
   ArrowPathIcon
 } from "@heroicons/react/24/solid";
 
+// ✅ Correct! Looking in the 'src' folder
 import axiosInstance from '../../../axios';
 
 export default function ResumeExam() {

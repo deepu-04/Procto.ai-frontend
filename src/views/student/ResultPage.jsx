@@ -43,7 +43,7 @@ import {
   IconCrown, 
 } from '@tabler/icons-react';
 import PageContainer from 'src/components/container/PageContainer';
-import axiosInstance from '../../../axios';
+import axiosInstance from '../../axios';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import SyntaxHighlighter from 'react-syntax-highlighter';

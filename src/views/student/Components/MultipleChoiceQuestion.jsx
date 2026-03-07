@@ -10,7 +10,7 @@ import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import { useNavigate, useParams } from 'react-router';
-import axiosInstance from '../../../axios';
+import axiosInstance from '../../axios';
 import { toast } from 'react-toastify';
 
 export default function MultipleChoiceQuestion({ questions = [], saveUserTestScore, submitTest }) {

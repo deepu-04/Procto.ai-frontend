@@ -19,7 +19,8 @@ import {
 
 import PageContainer from 'src/components/container/PageContainer';
 // ✅ Correct path
-import axiosInstance from '../../../axios'; // FIX: Imported your secure axios instance
+// ✅ Correct! Looking in the 'src' folder
+import axiosInstance from '../../../axios';// FIX: Imported your secure axios instance
 
 /* ================= DEMO DATA ================= */
 const DEMO_PERFORMANCE = [

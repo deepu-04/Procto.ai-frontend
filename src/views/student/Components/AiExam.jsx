@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
-import axiosInstance from '../../axios'; // FIX: Imported secure axios instance
+// ✅ Correct! Looking in the 'src' folder
+import axiosInstance from '../../../axios'; // FIX: Imported secure axios instance
 
 import WebCam from './WebCam'; 
 
