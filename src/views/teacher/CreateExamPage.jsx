@@ -71,14 +71,22 @@ const CreateExamPage = () => {
 
     onSubmit: async (values) => {
       try {
-        const exam = await createExam(values).unwrap();
+        // FIX: Convert local times to absolute UTC ISO strings to prevent "upcoming" timezone bugs
+        const formattedPayload = {
+          ...values,
+          liveDate: new Date(values.liveDate).toISOString(),
+          deadDate: new Date(values.deadDate).toISOString(),
+        };
+
+        // Send the formatted dates to the backend
+        const exam = await createExam(formattedPayload).unwrap();
 
         await axiosInstance.post('/api/coding/question', {
           ...values.codingQuestion,
           examId: exam.examId,
         });
 
-        toast.success('Exam & Coding Question created');
+        toast.success('Exam & Coding Question created successfully');
         formik.resetForm();
       } catch (err) {
         toast.error(err?.data?.message || 'Creation failed');
