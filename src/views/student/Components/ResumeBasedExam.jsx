@@ -11,8 +11,6 @@ import {
   ArrowPathIcon
 } from "@heroicons/react/24/solid";
 
-// FIX: Import your configured axios instance to route requests to the live backend
-// ✅ Correct path
 import axiosInstance from '../../../axios';
 
 export default function ResumeExam() {
@@ -60,14 +58,22 @@ export default function ResumeExam() {
     try {
       setLoadingJD(true);
       let res;
-      // FIX: Used axiosInstance and removed localhost:5000
+      
+      // 🛠️ THE FIX: Explicitly attach the token to prevent header overrides
+      const token = localStorage.getItem('token');
+      
       if (jdMode === "text") {
-        res = await axiosInstance.post("/api/ai/analyze-jd", { jd });
+        res = await axiosInstance.post("/api/ai/analyze-jd", { jd }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       } else {
         const formData = new FormData();
         formData.append("jdFile", jdFile);
         res = await axiosInstance.post("/api/ai/analyze-jd-file", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
+          headers: { 
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}` 
+          },
         });
       }
       setSkills(res.data.skills || []);
@@ -87,9 +93,13 @@ export default function ResumeExam() {
       formData.append("resume", resumeFile);
       formData.append("skills", skills.join(","));
 
-      // FIX: Used axiosInstance and removed localhost:5000
+      // 🛠️ THE FIX: Attach token alongside multipart header
+      const token = localStorage.getItem('token');
       const res = await axiosInstance.post("/api/ai/analyze-resume", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: { 
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`
+        },
       });
 
       setSkills(res.data.matched || skills);
@@ -106,8 +116,12 @@ export default function ResumeExam() {
   const generateExam = async () => {
     try {
       setLoadingExam(true);
-      // FIX: Used axiosInstance and removed localhost:5000
-      const res = await axiosInstance.post("/api/ai/generate-exam", { skills });
+      
+      // 🛠️ THE FIX: Explicitly attach the token
+      const token = localStorage.getItem('token');
+      const res = await axiosInstance.post("/api/ai/generate-exam", { skills }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       
       // Navigate to the AiExam component and pass the generated questions in state
       navigate("/candidate/ai-exam", { state: { examData: res.data.exam } });
