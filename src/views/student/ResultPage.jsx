@@ -204,7 +204,6 @@ const ResultPage = () => {
       });
       
       // 🛠️ THE FIX: Ultra-Robust Data Extraction
-      // Safely checks multiple common backend JSON wrapper patterns
       let rawData = response.data;
       if (rawData && !Array.isArray(rawData) && typeof rawData === 'object') {
         rawData = rawData.results || rawData.data || rawData.result || Object.values(rawData).find(Array.isArray) || [];
@@ -844,54 +843,50 @@ const ResultPage = () => {
                                             ? '#94A3B8'
                                             : actualRank === 3
                                               ? '#D97706'
-                                              : (isDark ? 'rgba(255,255,255,0.1)' : '#F1F5F9'),
-                                      color: actualRank <= 3 ? 'white' : (isDark ? '#94A3B8' : '#475569'),
+                                              : isDark ? 'rgba(255,255,255,0.1)' : '#F1F5F9',
+                                      color: actualRank <= 3 ? '#ffffff' : (isDark ? '#F8FAFC' : '#1E293B'),
                                       display: 'flex',
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                       fontWeight: 'bold',
+                                      fontSize: '0.85rem'
                                     }}
                                   >
                                     {actualRank}
                                   </Box>
                                 </TableCell>
                                 <TableCell>
-                                  <Box display="flex" alignItems="center" gap={1.5}>
-                                    <Avatar
-                                      sx={{
-                                        bgcolor: '#6366F1',
-                                        width: 36,
-                                        height: 36,
-                                        fontSize: '0.9rem',
+                                  <Box display="flex" alignItems="center" gap={2}>
+                                    <Avatar 
+                                      sx={{ 
+                                        width: 32, 
+                                        height: 32, 
+                                        bgcolor: isDark ? '#3B82F6' : '#EFF6FF', 
+                                        color: isDark ? '#ffffff' : '#2563EB', 
+                                        fontSize: '0.9rem' 
                                       }}
                                     >
                                       {result.userId?.name?.charAt(0).toUpperCase() || 'U'}
                                     </Avatar>
                                     <Box>
-                                      <Typography variant="body2" fontWeight="700" sx={{ color: isDark ? '#F8FAFC' : '#1E293B' }}>
-                                        {result.userId?.name?.toUpperCase() || 'UNKNOWN USER'}
+                                      <Typography variant="body2" fontWeight="600" color={isDark ? '#F8FAFC' : 'textPrimary'}>
+                                        {result.userId?.name || 'Unknown User'}
                                       </Typography>
-                                      <Typography variant="caption" sx={{ color: isDark ? '#94A3B8' : 'textSecondary' }}>
-                                        {result.userId?.email || 'N/A'}
+                                      <Typography variant="caption" color={isDark ? '#94A3B8' : 'textSecondary'}>
+                                        {result.userId?.email || 'No email provided'}
                                       </Typography>
                                     </Box>
                                   </Box>
                                 </TableCell>
-                                <TableCell>
-                                  <Typography variant="body2" fontWeight="500" sx={{ color: isDark ? '#E2E8F0' : 'inherit' }}>
-                                    {result.examId?.examName || 'Unknown Exam'}
-                                  </Typography>
+                                <TableCell sx={{ color: isDark ? '#F8FAFC' : 'inherit' }}>
+                                  {result.examId?.examName || 'N/A'}
                                 </TableCell>
                                 <TableCell>
-                                  <Typography variant="body2" fontWeight="bold" sx={{ color: isDark ? '#F8FAFC' : '#0F172A' }}>
-                                    {result.percentage?.toFixed(1)}%{' '}
-                                    <Typography
-                                      component="span"
-                                      variant="caption"
-                                      sx={{ color: isDark ? '#94A3B8' : 'textSecondary' }}
-                                    >
-                                      ({result.totalMarks} pts)
-                                    </Typography>
+                                  <Typography variant="body2" fontWeight="bold" color={isDark ? '#60A5FA' : 'primary.main'}>
+                                    {result.percentage?.toFixed(2)}%
+                                  </Typography>
+                                  <Typography variant="caption" color={isDark ? '#94A3B8' : 'textSecondary'}>
+                                    {result.totalScore !== undefined ? result.totalScore : '?'} / {result.examId?.totalMarks || '?'} pts
                                   </Typography>
                                 </TableCell>
                                 <TableCell align="center">
@@ -903,49 +898,48 @@ const ResultPage = () => {
                                       color: isDark ? band.darkColor : band.color,
                                       fontWeight: 'bold',
                                       borderRadius: '8px',
-                                      border: isDark ? `1px solid ${band.darkColor}40` : 'none',
                                     }}
                                   />
                                 </TableCell>
                                 {userInfo?.role === 'teacher' && (
                                   <TableCell>
-                                    <IconButton
-                                      onClick={() => handleToggleVisibility(result._id)}
-                                      sx={{ color: result.showToStudent ? '#10B981' : (isDark ? '#475569' : '#94A3B8') }}
+                                    <Chip
+                                      icon={result.showToStudent ? <IconEye size={16} /> : <IconEyeOff size={16} />}
+                                      label={result.showToStudent ? 'Visible' : 'Hidden'}
                                       size="small"
-                                    >
-                                      {result.showToStudent ? (
-                                        <IconEye size={20} stroke={1.5} />
-                                      ) : (
-                                        <IconEyeOff size={20} stroke={1.5} />
-                                      )}
-                                    </IconButton>
+                                      onClick={() => handleToggleVisibility(result._id)}
+                                      sx={{
+                                        bgcolor: result.showToStudent 
+                                          ? (isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5') 
+                                          : (isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2'),
+                                        color: result.showToStudent 
+                                          ? (isDark ? '#34D399' : '#065F46') 
+                                          : (isDark ? '#F87171' : '#991B1B'),
+                                        cursor: 'pointer',
+                                        '&:hover': { opacity: 0.8 },
+                                        transition: 'all 0.2s ease'
+                                      }}
+                                    />
                                   </TableCell>
                                 )}
                                 <TableCell align="right">
                                   {result.codingSubmissions?.length > 0 ? (
-                                    <Button
-                                      variant="outlined"
-                                      size="small"
-                                      startIcon={<IconCode size={16} />}
-                                      onClick={() => handleViewCode(result)}
-                                      sx={{
-                                        borderRadius: 4,
-                                        textTransform: 'none',
-                                        fontWeight: 'bold',
-                                        borderColor: isDark ? 'rgba(255,255,255,0.2)' : undefined,
-                                        color: isDark ? '#60A5FA' : undefined,
-                                        '&:hover': {
-                                          borderColor: isDark ? '#60A5FA' : undefined,
-                                          bgcolor: isDark ? 'rgba(96, 165, 250, 0.1)' : undefined,
-                                        }
-                                      }}
-                                    >
-                                      Code
-                                    </Button>
+                                    <Tooltip title="View Code">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleViewCode(result)}
+                                        sx={{ 
+                                          color: isDark ? '#60A5FA' : '#3B82F6', 
+                                          bgcolor: isDark ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF',
+                                          '&:hover': { bgcolor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE' }
+                                        }}
+                                      >
+                                        <IconCode size={18} />
+                                      </IconButton>
+                                    </Tooltip>
                                   ) : (
-                                    <Typography variant="caption" sx={{ color: isDark ? '#475569' : 'textSecondary' }}>
-                                      -
+                                    <Typography variant="caption" color={isDark ? '#94A3B8' : 'textSecondary'}>
+                                      MCQ Only
                                     </Typography>
                                   )}
                                 </TableCell>
@@ -955,6 +949,7 @@ const ResultPage = () => {
                         </TableBody>
                       </Table>
                     </TableContainer>
+                    
                     <TablePagination
                       component="div"
                       count={filteredResults.length}
@@ -962,8 +957,7 @@ const ResultPage = () => {
                       onPageChange={handleChangePage}
                       rowsPerPage={rowsPerPage}
                       onRowsPerPageChange={handleChangeRowsPerPage}
-                      rowsPerPageOptions={[5, 10, 25]}
-                      sx={{ color: isDark ? '#E2E8F0' : 'inherit' }}
+                      sx={{ color: isDark ? '#94A3B8' : 'inherit', borderTop: isDark ? '1px solid rgba(255,255,255,0.1)' : 'none' }}
                     />
                   </Box>
                 )}
@@ -971,61 +965,68 @@ const ResultPage = () => {
             </Grid>
           </Grid>
 
-          {/* Dialog */}
-          <Dialog
-            open={codeDialogOpen}
+          {/* 4. Code View Dialog */}
+          <Dialog 
+            open={codeDialogOpen} 
             onClose={() => setCodeDialogOpen(false)}
             maxWidth="md"
             fullWidth
-            PaperProps={{ sx: { minHeight: '60vh', borderRadius: '32px', bgcolor: isDark ? '#1C1C1E' : '#ffffff' } }}
+            TransitionComponent={Fade}
+            PaperProps={{
+              sx: {
+                bgcolor: isDark ? '#1E293B' : '#ffffff',
+                color: isDark ? '#F8FAFC' : 'inherit',
+                borderRadius: '24px',
+                backgroundImage: 'none',
+                boxShadow: isDark ? '0 25px 50px -12px rgba(0, 0, 0, 0.5)' : '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              }
+            }}
           >
-            <DialogTitle sx={{ bgcolor: isDark ? 'rgba(0,0,0,0.2)' : '#F8FAFC', borderBottom: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #E2E8F0', p: 3 }}>
-              <Box display="flex" alignItems="center" gap={1.5}>
-                <IconCode size={24} color={isDark ? "#60A5FA" : "#3B82F6"} stroke={2} />
-                <Typography variant="h6" fontWeight="800" sx={{ color: isDark ? '#F8FAFC' : '#1E293B' }}>
-                  Code Submissions
-                </Typography>
-              </Box>
+            <DialogTitle sx={{ borderBottom: 1, borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'divider', fontWeight: 'bold' }}>
+              Coding Submissions
             </DialogTitle>
-            <DialogContent sx={{ pt: 4, px: 4 }}>
-              {selectedResult?.codingSubmissions?.length > 0 ? (
-                selectedResult.codingSubmissions.map((sub, i) => (
-                  <Box key={i} mb={5}>
-                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-                      <Typography variant="subtitle1" fontWeight="800" sx={{ color: isDark ? '#E2E8F0' : '#1E293B' }}>
-                        Question {i + 1}
-                      </Typography>
-                      <Chip
-                        label={sub.language}
-                        size="small"
-                        variant="outlined"
-                        sx={{ fontWeight: 'bold', borderRadius: 2, color: isDark ? '#94A3B8' : 'inherit', borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'inherit' }}
-                      />
-                    </Box>
-                    <Paper variant="outlined" sx={{ borderRadius: 4, overflow: 'hidden', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0', bgcolor: isDark ? '#000000' : '#ffffff' }}>
-                      <SyntaxHighlighter
-                        language={sub.language}
-                        style={atomOneDark}
-                        showLineNumbers
-                        customStyle={{ margin: 0, padding: '20px', fontSize: '0.9rem', backgroundColor: isDark ? '#000000' : '#282C34' }}
-                      >
-                        {sub.code || '// No code submitted'}
-                      </SyntaxHighlighter>
-                    </Paper>
+            <DialogContent sx={{ pt: 3, pb: 2 }}>
+              {selectedResult?.codingSubmissions?.map((sub, idx) => (
+                <Box key={idx} mb={4}>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                    <Typography variant="subtitle2" color={isDark ? '#94A3B8' : 'textSecondary'}>
+                      Question {idx + 1}
+                    </Typography>
+                    <Chip 
+                      label={sub.language || 'javascript'} 
+                      size="small" 
+                      sx={{ bgcolor: isDark ? 'rgba(255,255,255,0.1)' : '#F1F5F9', color: isDark ? '#F8FAFC' : '#475569' }} 
+                    />
                   </Box>
-                ))
-              ) : (
-                <Typography textAlign="center" sx={{ color: isDark ? '#94A3B8' : 'textSecondary' }}>No code available</Typography>
-              )}
+                  <SyntaxHighlighter 
+                    language={sub.language?.toLowerCase() || 'javascript'} 
+                    style={atomOneDark}
+                    customStyle={{ 
+                      borderRadius: '12px', 
+                      padding: '20px',
+                      margin: 0,
+                      fontSize: '0.9rem',
+                      border: isDark ? '1px solid rgba(255,255,255,0.1)' : 'none'
+                    }}
+                  >
+                    {sub.code || '// No code submitted'}
+                  </SyntaxHighlighter>
+                </Box>
+              ))}
             </DialogContent>
-            <DialogActions sx={{ p: 3, borderTop: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #E2E8F0', bgcolor: isDark ? 'rgba(0,0,0,0.2)' : '#F8FAFC' }}>
-              <Button
-                onClick={() => setCodeDialogOpen(false)}
+            <DialogActions sx={{ borderTop: 1, borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'divider', p: 2 }}>
+              <Button 
+                onClick={() => setCodeDialogOpen(false)} 
                 variant="contained"
                 disableElevation
-                sx={{ borderRadius: 4, px: 4, py: 1, textTransform: 'none', fontWeight: 'bold', bgcolor: isDark ? '#3B82F6' : 'primary.main' }}
+                sx={{ 
+                  borderRadius: '12px',
+                  bgcolor: isDark ? 'rgba(255,255,255,0.1)' : '#F1F5F9',
+                  color: isDark ? '#F8FAFC' : '#1E293B',
+                  '&:hover': { bgcolor: isDark ? 'rgba(255,255,255,0.2)' : '#E2E8F0' }
+                }}
               >
-                Close Window
+                Close
               </Button>
             </DialogActions>
           </Dialog>
