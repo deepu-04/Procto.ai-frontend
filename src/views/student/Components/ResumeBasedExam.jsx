@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate } from "react-router-dom"; // <-- Added for navigation
+import { useNavigate } from "react-router-dom";
 import {
   SparklesIcon,
   DocumentTextIcon,
@@ -12,8 +11,11 @@ import {
   ArrowPathIcon
 } from "@heroicons/react/24/solid";
 
+// FIX: Import your configured axios instance to route requests to the live backend
+import axiosInstance from "../../axios";
+
 export default function ResumeExam() {
-  const navigate = useNavigate(); // <-- Initialize navigation
+  const navigate = useNavigate();
 
   // JD States
   const [jdMode, setJdMode] = useState("text"); 
@@ -57,17 +59,19 @@ export default function ResumeExam() {
     try {
       setLoadingJD(true);
       let res;
+      // FIX: Used axiosInstance and removed localhost:5000
       if (jdMode === "text") {
-        res = await axios.post("http://localhost:5000/api/ai/analyze-jd", { jd });
+        res = await axiosInstance.post("/api/ai/analyze-jd", { jd });
       } else {
         const formData = new FormData();
         formData.append("jdFile", jdFile);
-        res = await axios.post("http://localhost:5000/api/ai/analyze-jd-file", formData, {
+        res = await axiosInstance.post("/api/ai/analyze-jd-file", formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
       }
       setSkills(res.data.skills || []);
     } catch (err) {
+      console.error(err);
       showAlert("Analysis Failed", "Could not analyze the Job Description. Please try again.");
     }
     setLoadingJD(false);
@@ -82,12 +86,14 @@ export default function ResumeExam() {
       formData.append("resume", resumeFile);
       formData.append("skills", skills.join(","));
 
-      const res = await axios.post("http://localhost:5000/api/ai/analyze-resume", formData, {
+      // FIX: Used axiosInstance and removed localhost:5000
+      const res = await axiosInstance.post("/api/ai/analyze-resume", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
       setSkills(res.data.matched || skills);
     } catch (err) {
+      console.error(err);
       showAlert("Upload Failed", "Resume analysis encountered an error.");
     }
     setLoadingResume(false);
@@ -99,7 +105,8 @@ export default function ResumeExam() {
   const generateExam = async () => {
     try {
       setLoadingExam(true);
-      const res = await axios.post("http://localhost:5000/api/ai/generate-exam", { skills });
+      // FIX: Used axiosInstance and removed localhost:5000
+      const res = await axiosInstance.post("/api/ai/generate-exam", { skills });
       
       // Navigate to the AiExam component and pass the generated questions in state
       navigate("/candidate/ai-exam", { state: { examData: res.data.exam } });

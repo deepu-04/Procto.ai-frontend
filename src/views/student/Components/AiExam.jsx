@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
-import axios from 'axios'; 
+import axiosInstance from '../../axios'; // FIX: Imported secure axios instance
 
 import WebCam from './WebCam'; 
 
@@ -136,13 +136,12 @@ export default function AiExam() {
 
   useEffect(() => {
     if (location.state?.examData) {
-      // 🔥 Extract Subject/Topic from location state if available, fallback to examName
       const examSubject = location.state.subject || location.state.topic || location.state.examName || "General IT";
       
       const newExam = {
         id: `ai-exam-${Date.now()}`,
         name: location.state.examName || "AI Generated Assessment", 
-        subject: examSubject, // <-- STORE SUBJECT FOR ANALYTICS
+        subject: examSubject,
         date: new Date().toISOString(),
         questions: location.state.examData,
         completed: false,
@@ -331,19 +330,23 @@ export default function AiExam() {
 
     // 1. Post to Backend MongoDB
     try {
-      await axios.post('http://localhost:5000/api/user/save-ai-result', {
+      // FIX: Changed from raw axios to axiosInstance to route securely to deployed backend
+      // Added authorization headers to prevent 401 Unauthorized blocks
+      const token = localStorage.getItem('token');
+      await axiosInstance.post('/api/user/save-ai-result', {
         userId: userInfo?._id || userInfo?.id,
         examName: activeExam.name || "AI Generated Exam",
-        subject: subjectName, // Send subject directly if your backend supports it
+        subject: subjectName,
         answers: answers,
         totalMarks: totalQuestions,
         score: score,
         percentage: percentage,
         trustScore: trustScore,
         securityLog: sessionEvents,
-        // Hack for backwards compatibility: We append the subject to the feedback string
-        // so the analytics controller can extract it if the schema lacks a "subject" field.
         feedback: `AI Exam: ${subjectName}. Trust Score: ${trustScore}%`
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true
       });
       toast.success("Result synced to database successfully!");
     } catch (error) {

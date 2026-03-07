@@ -18,6 +18,7 @@ import {
 } from '@mui/icons-material';
 
 import PageContainer from 'src/components/container/PageContainer';
+import axiosInstance from '../../axios'; // FIX: Imported your secure axios instance
 
 /* ================= DEMO DATA ================= */
 const DEMO_PERFORMANCE = [
@@ -85,7 +86,6 @@ export default function Analytics() {
     try {
       setIsFetching(true);
       
-      // --- FIX: Safely retrieve userId from localStorage ---
       const storedUserId = localStorage.getItem("userId");
       let parsedUser = null;
       
@@ -104,18 +104,26 @@ export default function Analytics() {
       if (!userId) {
         setError("User session not found. Showing demo graphs.");
         setIsFetching(false);
-        return; // Exit early if we don't have an ID to query
+        return; 
       }
-      // -----------------------------------------------------
 
-      const { data } = await axios.get(`http://localhost:5000/api/user/analytics-dashboard?userId=${userId}`);
+      // FIX: Grab token and use axiosInstance to securely call the hosted backend, not localhost!
+      const token = localStorage.getItem('token');
+      const response = await axiosInstance.get(`/api/user/analytics-dashboard?userId=${userId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       
-      if (data && data.history && data.history.length > 0) {
-        setPerformanceData(data.history);
-        setSkillGapData(data.gaps.map(item => ({ ...item, actual: item.actual ?? 0 })));
-        setRecentExams(data.exams);
-        setTotalExamsCount(data.stats?.totalExams || data.exams.length);
+      // Robust extraction in case the backend wraps it in 'data.data'
+      const data = response.data?.data || response.data;
+      
+      if (data && (data.history || data.exams)) {
+        if (data.history?.length > 0) setPerformanceData(data.history);
+        if (data.gaps?.length > 0) setSkillGapData(data.gaps.map(item => ({ ...item, actual: item.actual ?? 0 })));
+        if (data.exams?.length > 0) setRecentExams(data.exams);
+        
+        setTotalExamsCount(data.stats?.totalExams || data.exams?.length || 0);
         setAverageScore(data.stats?.avgScore || 0);
+        
         setIsLiveData(true);
         setError(null);
       } else {

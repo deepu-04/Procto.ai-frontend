@@ -203,8 +203,14 @@ const ResultPage = () => {
         withCredentials: true 
       });
       
-      const rawData = response.data?.data || response.data || [];
-      const resultsData = Array.isArray(rawData) ? rawData : []; // Safety check to prevent .sort() crash
+      // 🛠️ THE FIX: Ultra-Robust Data Extraction
+      // Safely checks multiple common backend JSON wrapper patterns
+      let rawData = response.data;
+      if (rawData && !Array.isArray(rawData) && typeof rawData === 'object') {
+        rawData = rawData.results || rawData.data || rawData.result || Object.values(rawData).find(Array.isArray) || [];
+      }
+      
+      const resultsData = Array.isArray(rawData) ? rawData : []; 
       const sortedData = [...resultsData].sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
 
       setResults(sortedData);

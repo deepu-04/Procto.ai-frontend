@@ -71,14 +71,22 @@ const CreateExamPage = () => {
 
     onSubmit: async (values) => {
       try {
-        // FIX: Convert local times to absolute UTC ISO strings to prevent "upcoming" timezone bugs
+        // 🛠️ THE FIX: Server-Client Clock Drift Compensation
+        // We subtract 2 minutes from the liveDate. This ensures that if the user 
+        // selects the "Current Time", the server explicitly sees it as the past, 
+        // forcing the exam to go "Live" immediately instead of getting stuck in "Upcoming".
+        const liveDateObj = new Date(values.liveDate);
+        liveDateObj.setMinutes(liveDateObj.getMinutes() - 2);
+
+        const deadDateObj = new Date(values.deadDate);
+
+        // Send strictly formatted ISO strings to prevent Timezone shift bugs
         const formattedPayload = {
           ...values,
-          liveDate: new Date(values.liveDate).toISOString(),
-          deadDate: new Date(values.deadDate).toISOString(),
+          liveDate: liveDateObj.toISOString(),
+          deadDate: deadDateObj.toISOString(),
         };
 
-        // Send the formatted dates to the backend
         const exam = await createExam(formattedPayload).unwrap();
 
         await axiosInstance.post('/api/coding/question', {
