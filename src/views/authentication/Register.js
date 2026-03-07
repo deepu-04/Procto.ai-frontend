@@ -213,7 +213,7 @@ export default function Register() {
     setToast({ open: true, message, type });
   };
 
-  // 🔥 THE DASHBOARD ROUTER: Safely returns exactly where the user needs to go
+  // 🔥 THE DASHBOARD ROUTER
   const getDashboardPath = (role) => {
     if (role === 'teacher') return '/admin';
     return '/dashboard'; // Default Student path
@@ -262,6 +262,8 @@ export default function Register() {
         });
         
         const backendToken = res.data.token; 
+        // 🔥 STRICT FIX: Always trust the backend's true role
+        const trueRole = res.data.role || values.role;
         
         await sendWelcomeEmail(user.email, values.name);
 
@@ -269,7 +271,7 @@ export default function Register() {
           uid: user.uid, 
           email: user.email, 
           name: values.name,
-          role: values.role,
+          role: trueRole, // Use true backend role
           token: backendToken 
         };
 
@@ -277,8 +279,8 @@ export default function Register() {
         localStorage.setItem('userInfo', JSON.stringify(userPayload));
         dispatch(setCredentials(userPayload));
 
-        showToast(`Welcome ${values.role === 'teacher' ? 'Teacher' : 'Student'}! 🎉`, 'success');
-        navigate(getDashboardPath(values.role), { replace: true });
+        showToast(`Welcome ${trueRole === 'teacher' ? 'Teacher' : 'Student'}! 🎉`, 'success');
+        navigate(getDashboardPath(trueRole), { replace: true });
         
       } catch (err) {
         const errMsg = err?.response?.data?.message || err.code?.replace('auth/', '').replace(/-/g, ' ') || 'Registration failed';
@@ -321,8 +323,8 @@ export default function Register() {
       
       const backendToken = res.data.token;
 
-      // 🔥 FIX: Always use the role returned by the backend!
-      // This strictly prevents a Teacher from getting stuck in a Student dashboard loop.
+      // 🔥 STRICT FIX: If the user already existed in the DB as a 'teacher', the backend will return 'teacher',
+      // even if they accidentally clicked 'student' on the Google prompt today.
       const trueRole = res.data.role || selectedRole;
 
       const userPayload = {
