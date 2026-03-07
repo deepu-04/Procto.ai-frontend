@@ -26,15 +26,17 @@ import BookmarkIcon from '@mui/icons-material/Bookmark';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import WebCam from '../student/Components/WebCam';
-import { useGetExamsQuery, useGetQuestionsQuery } from '../../slices/examApiSlice';
-import { useSaveCheatingLogMutation } from 'src/slices/cheatingLogApiSlice';
+
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
-import { useCheatingLog } from 'src/context/CheatingLogContext';
 
-const NETWORK_CHECK_URL = 'http://localhost:5000/api/network/check';
+// FIXED IMPORTS: Using relative paths prevents the "_s is not a function" Webpack crash
+import { useGetExamsQuery, useGetQuestionsQuery } from '../../slices/examApiSlice';
+import { useSaveCheatingLogMutation } from '../../slices/cheatingLogApiSlice';
+import { useCheatingLog } from '../../context/CheatingLogContext';
 
 /* ================= CONFIG & BOILERPLATE ================= */
 // Piston API uses version '*' to automatically resolve the correct backend version
@@ -116,7 +118,10 @@ export default function Coder() {
   const lastKeyTimeRef = useRef(Date.now());
   const lastViolationTimesRef = useRef({});
   const loggedViolationsRef = useRef(new Set());
-  const initialIpRef = useRef(null);
+  
+  const initialWebrtcIpRef = useRef(null);
+  const initialIpifyIpRef = useRef(null);
+  
   const cheatingLogRef = useRef({});
   const hasAutoSubmittedRef = useRef(false);
 
@@ -141,6 +146,7 @@ export default function Coder() {
   const [output, setOutput] = useState('');
   const [isError, setIsError] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [testResults, setTestResults] = useState(null);
   
   // Navigation States
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
@@ -171,23 +177,23 @@ export default function Coder() {
   useEffect(() => {
     if (Array.isArray(userExamdata)) {
       const exam = userExamdata.find((e) => e.examId === examId);
-      if (exam?.duration) setExamDurationInSeconds(exam.duration);
+      if (exam?.duration) setExamDurationInSeconds(exam.duration * 60);
     }
   }, [userExamdata, examId]);
 
   useEffect(() => {
-    if (Array.isArray(questionsData)) {
-      setQuestions(questionsData);
-    } else if (questionsData && Array.isArray(questionsData.questions)) {
-      setQuestions(questionsData.questions);
-    } else if (questionsData && Array.isArray(questionsData.data)) {
-      setQuestions(questionsData.data);
+    if (questionsData) {
+      const extractedQuestions = Array.isArray(questionsData) 
+        ? questionsData 
+        : (questionsData.questions || questionsData.data || []);
+      setQuestions(extractedQuestions);
     }
   }, [questionsData]);
 
   /* ================= PROCTORING LOGIC ================= */
   useEffect(() => {
     if (riskScore >= 100 && !hasAutoSubmittedRef.current) {
+      hasAutoSubmittedRef.current = true;
       toast.error('System Integrity critical. Auto-submitting exam.');
       handleTestSubmission();
     }
@@ -200,9 +206,10 @@ export default function Coder() {
   };
 
   const getTrustEmoji = () => {
-    if (trustScore > 50) return '😊';
+    if (trustScore > 80) return '😇';
+    if (trustScore > 50) return '😐';
     if (trustScore > 20) return '😟';
-    return '😠';
+    return '😡';
   };
 
   useEffect(() => {
@@ -220,6 +227,7 @@ export default function Coder() {
         if (prev <= 1) {
           clearInterval(timer);
           if (!hasAutoSubmittedRef.current) {
+            hasAutoSubmittedRef.current = true;
             handleTestSubmission();
           }
           return 0;
@@ -301,8 +309,8 @@ export default function Coder() {
         const detectedIp = matches[0];
         const isPrivate = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.)/.test(detectedIp);
         if (!isPrivate) {
-          if (!initialIpRef.current) initialIpRef.current = detectedIp;
-          else if (initialIpRef.current !== detectedIp) {
+          if (!initialWebrtcIpRef.current) initialWebrtcIpRef.current = detectedIp;
+          else if (initialWebrtcIpRef.current !== detectedIp) {
             setMultipleIpDetected(true);
             registerViolation(
               'MULTIPLE_IPS',
@@ -319,13 +327,13 @@ export default function Coder() {
 
   const monitorPublicIP = async () => {
     try {
-      const res = await fetch('https://api64.ipify.org?format=json');
+      const res = await fetch('https://api.ipify.org?format=json');
       const data = await res.json();
       const currentIp = data.ip;
 
-      if (!initialIpRef.current) {
-        initialIpRef.current = currentIp;
-      } else if (initialIpRef.current !== currentIp) {
+      if (!initialIpifyIpRef.current) {
+        initialIpifyIpRef.current = currentIp;
+      } else if (initialIpifyIpRef.current !== currentIp) {
         setVpnDetected(true);
         registerViolation(
           'VPN_DETECTED',
@@ -394,26 +402,7 @@ export default function Coder() {
       );
     }
 
-    const handleContextMenu = (e) => {
-      e.preventDefault();
-      registerViolation('SECURE_BROWSER', 'Right-click disabled', 'high', 5);
-    };
-    const handleCopy = (e) => {
-      e.preventDefault();
-      registerViolation('SECURE_BROWSER', 'Copy disabled', 'high', 10);
-    };
-    const handlePaste = (e) => {
-      e.preventDefault();
-      registerViolation('SECURE_BROWSER', 'Paste disabled', 'high', 10);
-    };
-    const handleCut = (e) => {
-      e.preventDefault();
-      registerViolation('SECURE_BROWSER', 'Cut disabled', 'high', 10);
-    };
-    const handleDrag = (e) => {
-      e.preventDefault();
-      registerViolation('SECURE_BROWSER', 'Drag/Drop disabled', 'high', 5);
-    };
+    const preventDefault = (e) => e.preventDefault();
     const handleVisibilityChange = () => {
       if (document.hidden)
         registerViolation('TAB_SWITCH', 'User switched tabs or minimized', 'critical', 25);
@@ -446,12 +435,12 @@ export default function Coder() {
       }
     };
 
-    document.addEventListener('contextmenu', handleContextMenu);
-    document.addEventListener('copy', handleCopy);
-    document.addEventListener('paste', handlePaste);
-    document.addEventListener('cut', handleCut);
-    document.addEventListener('dragstart', handleDrag);
-    document.addEventListener('drop', handleDrag);
+    document.addEventListener('contextmenu', preventDefault);
+    document.addEventListener('copy', preventDefault);
+    document.addEventListener('paste', preventDefault);
+    document.addEventListener('cut', preventDefault);
+    document.addEventListener('dragstart', preventDefault);
+    document.addEventListener('drop', preventDefault);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('keydown', handleKeyDown);
@@ -459,12 +448,12 @@ export default function Coder() {
     initializeAudioMonitoring();
 
     return () => {
-      document.removeEventListener('contextmenu', handleContextMenu);
-      document.removeEventListener('copy', handleCopy);
-      document.removeEventListener('paste', handlePaste);
-      document.removeEventListener('cut', handleCut);
-      document.removeEventListener('dragstart', handleDrag);
-      document.removeEventListener('drop', handleDrag);
+      document.removeEventListener('contextmenu', preventDefault);
+      document.removeEventListener('copy', preventDefault);
+      document.removeEventListener('paste', preventDefault);
+      document.removeEventListener('cut', preventDefault);
+      document.removeEventListener('dragstart', preventDefault);
+      document.removeEventListener('drop', preventDefault);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('keydown', handleKeyDown);
@@ -490,10 +479,9 @@ export default function Coder() {
         if (!navigator.onLine) return;
         monitorPublicIP();
         try {
-          const res = await fetch(NETWORK_CHECK_URL, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-          });
-          const result = await res.json();
+          const res = await axiosInstance.get('/network/check');
+          const result = res.data;
+          
           if (result && (result.vpnDetected === true || result.networkRisk?.vpn === true)) {
             setVpnDetected(true);
             registerViolation(
@@ -502,7 +490,7 @@ export default function Coder() {
               'critical',
               40,
             );
-          } else if (result && (result.networkRisk?.risk >= 70 || result.ipChanged === true)) {
+          } else if (result && (result.networkRisk?.risk >= 85 || result.ipChanged === true)) {
             registerViolation('NETWORK_RISK', 'Suspicious network routing', 'high', 25);
           }
         } catch {}
@@ -515,7 +503,6 @@ export default function Coder() {
   useEffect(() => {
     const handleFullscreenChange = () => {
       if (!document.fullscreenElement) {
-        // PREVENT VIOLATION STRIKE IF ALREADY SUBMITTED/SUBMITTING
         if (hasAutoSubmittedRef.current || isSubmitting) return;
 
         setIsFullscreen(false);
@@ -530,6 +517,7 @@ export default function Coder() {
 
         if (newStrikes >= 3 && !hasAutoSubmittedRef.current) {
           toast.error('Maximum violations reached. Submitting test.');
+          hasAutoSubmittedRef.current = true;
           handleTestSubmission();
         }
       } else {
@@ -545,7 +533,6 @@ export default function Coder() {
 
   /* ================= EDITOR LOGIC ================= */
   
-  // Update saved state whenever code changes so progress isn't lost
   const handleCodeChange = (newCode) => {
     setCode(newCode);
     setSavedCodes((prev) => ({
@@ -561,7 +548,6 @@ export default function Coder() {
     const newLang = e.target.value;
     setLanguage(newLang);
     
-    // Load previously typed code for this language and question, else load template
     const existingCode = savedCodes[currentQuestionIdx]?.[newLang];
     setCode(existingCode !== undefined ? existingCode : LANGUAGE_TEMPLATES[newLang]);
   };
@@ -587,15 +573,45 @@ export default function Coder() {
   const runCode = async () => {
     setIsRunning(true);
     setIsError(false);
-    setOutput('Compiling and running test cases...');
+    setOutput('');
+    setTestResults(null);
+    
+    const testCases = questions[currentQuestionIdx]?.testCases || [];
+    
     try {
-      const res = await axios.post('https://emkc.org/api/v2/piston/execute', {
-        language,
-        version: '*', // Uses automatic version resolution for any selected language
-        files: [{ content: code }],
-      });
-      setOutput(res.data.run.stderr || res.data.run.stdout || 'Program exited with no output.');
-      setIsError(!!res.data.run.stderr);
+      if (testCases.length === 0) {
+        // Run normally without specific test cases
+        const res = await axios.post('https://emkc.org/api/v2/piston/execute', {
+          language: language === 'c' || language === 'cpp' ? 'cpp' : language, // Piston compiler alias logic
+          version: '*',
+          files: [{ content: code }],
+        });
+        setOutput(res.data.run.stderr || res.data.run.stdout || 'Program exited with no output.');
+        setIsError(!!res.data.run.stderr);
+      } else {
+        // Loop through test cases and feed stdin
+        const results = [];
+        for (const tc of testCases) {
+          const res = await axios.post('https://emkc.org/api/v2/piston/execute', {
+            language: language === 'c' || language === 'cpp' ? 'cpp' : language,
+            version: '*',
+            files: [{ content: code }],
+            stdin: tc.input || ""
+          });
+          
+          const actualOutput = (res.data.run.stdout || "").trim();
+          const expectedOutput = (tc.output || "").trim();
+          const hasError = !!res.data.run.stderr;
+          const passed = !hasError && (actualOutput === expectedOutput);
+          
+          results.push({
+            ...tc,
+            actualOutput: hasError ? res.data.run.stderr.trim() : actualOutput,
+            passed
+          });
+        }
+        setTestResults(results);
+      }
     } catch {
       setIsError(true);
       setOutput('Execution failed. Please check your network or code syntax.');
@@ -612,7 +628,7 @@ export default function Coder() {
   const handleTestSubmission = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-    hasAutoSubmittedRef.current = true; // Sets submitting state so exit-fullscreen listener doesn't trigger strike
+    hasAutoSubmittedRef.current = true;
 
     try {
       const payload = {
@@ -624,7 +640,6 @@ export default function Coder() {
       
       await saveCheatingLogMutation(payload).unwrap();
 
-      // Explicitly exit fullscreen cleanly on successful submit
       if (document.fullscreenElement) {
         await document.exitFullscreen().catch(err => console.error("Fullscreen exit error:", err));
       }
@@ -640,8 +655,10 @@ export default function Coder() {
   const handlePaletteClick = (idx) => {
     setCurrentQuestionIdx(idx);
     setVisitedQuestions((prev) => new Set(prev).add(idx));
+    setTestResults(null); 
+    setOutput('');
     
-    // Load state for newly selected question
+    // Restore saved code for the clicked question
     const existingCode = savedCodes[idx]?.[language];
     setCode(existingCode !== undefined ? existingCode : LANGUAGE_TEMPLATES[language]);
   };
@@ -658,7 +675,6 @@ export default function Coder() {
   const formatTime = (seconds) => new Date(seconds * 1000).toISOString().substr(11, 8);
 
   const currentQ = questions[currentQuestionIdx] || {};
-  // Enhanced fallback logic for resolving question not displayed issue
   const displayQuestionTitle =
     currentQ.question || currentQ.title || currentQ.name || `Question ${currentQuestionIdx + 1}`;
   const displayQuestionText =
@@ -851,7 +867,7 @@ export default function Coder() {
               pointerEvents: isSuspiciousEnv ? 'none' : 'auto',
             }}
           >
-            {/* 1. HEADER (Matches Desktop-2 / Desktop-3 styling) */}
+            {/* 1. HEADER */}
             <Box
               sx={{
                 height: 80,
@@ -949,9 +965,9 @@ export default function Coder() {
               </Box>
             </Box>
 
-            {/* 2. MAIN 3-COLUMN CONTENT AREA (Matches Desktop-3) */}
+            {/* 2. MAIN 3-COLUMN CONTENT AREA */}
             <Box sx={{ flex: 1, display: 'flex', gap: 2, p: 2, overflow: 'hidden' }}>
-              {/* LEFT PANE - Question Description (flex 3) */}
+              {/* LEFT PANE - Question Description */}
               <Box
                 sx={{
                   flex: 3,
@@ -984,7 +1000,7 @@ export default function Coder() {
                       fontWeight: revisitQuestions.has(currentQuestionIdx) ? 'bold' : 'normal',
                     }}
                   >
-                    {revisitQuestions.has(currentQuestionIdx) ? 'Marked for Review' : 'Revisit Later'}
+                    {revisitQuestions.has(currentQuestionIdx) ? 'Marked' : 'Revisit Later'}
                   </Button>
                 </Box>
 
@@ -1029,7 +1045,7 @@ export default function Coder() {
                 )}
               </Box>
 
-              {/* CENTER PANE - Code Editor & Execution (flex 5) */}
+              {/* CENTER PANE - Code Editor & Execution */}
               <Box
                 sx={{
                   flex: 5,
@@ -1099,15 +1115,15 @@ export default function Coder() {
                   <Editor
                     height="calc(100% - 36px)"
                     theme="vs-dark"
-                    language={language}
+                    language={language === 'c' || language === 'cpp' ? 'cpp' : language}
                     value={code}
                     onChange={(v) => handleCodeChange(v || '')}
                     options={{ minimap: { enabled: false }, fontSize: 14, padding: { top: 16 } }}
                   />
                 </Box>
 
-                {/* Execution Panel (Adjusted UI) */}
-                <Box sx={{ bgcolor: 'white', borderRadius: 4, p: 2 }}>
+                {/* Execution Panel with Test Case UI */}
+                <Box sx={{ bgcolor: 'white', borderRadius: 4, p: 2, display: 'flex', flexDirection: 'column', maxHeight: '40%' }}>
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                     <Typography variant="subtitle1" fontWeight="bold">
                       Console Execution
@@ -1140,44 +1156,61 @@ export default function Coder() {
                     </Button>
                   </Box>
 
-                  {/* Dark-Themed Better Console Output */}
-                  {output && (
-                    <Box
-                      bgcolor="#0F172A"
-                      borderRadius={2}
-                      border="1px solid #334155"
-                      overflow="hidden"
-                    >
+                  <Box sx={{ overflowY: 'auto', flex: 1, pr: 1 }}>
+                    {/* Basic Output Fallback if no test cases provided */}
+                    {output && !testResults && (
                       <Box
-                        bgcolor="#1E293B"
-                        px={2}
-                        py={1}
-                        display="flex"
-                        alignItems="center"
-                        gap={1}
-                        borderBottom="1px solid #334155"
+                        bgcolor="#0F172A"
+                        borderRadius={2}
+                        border="1px solid #334155"
+                        overflow="hidden"
                       >
-                        <TerminalIcon sx={{ color: '#94A3B8', fontSize: 16 }} />
-                        <Typography variant="caption" fontWeight="bold" color="#E2E8F0">
-                          Terminal Output
-                        </Typography>
+                        <Box bgcolor="#1E293B" px={2} py={1} display="flex" alignItems="center" gap={1} borderBottom="1px solid #334155">
+                          <TerminalIcon sx={{ color: '#94A3B8', fontSize: 16 }} />
+                          <Typography variant="caption" fontWeight="bold" color="#E2E8F0">Terminal Output</Typography>
+                        </Box>
+                        <Box p={2}>
+                          <Typography variant="body2" whiteSpace="pre-wrap" fontFamily="monospace" color={isError ? '#ef4444' : '#10B981'}>
+                            {output}
+                          </Typography>
+                        </Box>
                       </Box>
-                      <Box p={2} sx={{ maxHeight: 150, overflowY: 'auto' }}>
-                        <Typography
-                          variant="body2"
-                          whiteSpace="pre-wrap"
-                          fontFamily="monospace"
-                          color={isError ? '#ef4444' : '#10B981'}
-                        >
-                          {output}
-                        </Typography>
+                    )}
+
+                    {/* Advanced Test Case Results Rendering */}
+                    {testResults && (
+                      <Box display="flex" flexDirection="column" gap={1.5}>
+                        <Typography variant="subtitle2" fontWeight="bold">Test Case Results:</Typography>
+                        {testResults.map((tr, i) => (
+                          <Box key={i} p={1.5} borderRadius={2} border={tr.passed ? '1px solid #22C55E' : '1px solid #EF4444'} bgcolor={tr.passed ? '#F0FDF4' : '#FEF2F2'}>
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              {tr.passed ? <CheckCircleOutlineIcon sx={{ color: '#22C55E', fontSize: 20 }} /> : <CancelRoundedIcon sx={{ color: '#EF4444', fontSize: 20 }} />}
+                              <Typography variant="body2" fontWeight="bold" color={tr.passed ? '#166534' : '#991B1B'}>
+                                Test Case {i + 1} {tr.isHidden ? "(Hidden)" : ""} : {tr.passed ? 'Passed' : 'Failed'}
+                              </Typography>
+                            </Box>
+                            
+                            <Box display="flex" flexDirection="column" gap={0.5} mt={1}>
+                              {!tr.isHidden && (
+                                <>
+                                  <Typography variant="caption" color="textSecondary">Input:</Typography>
+                                  <Typography variant="body2" fontFamily="monospace" bgcolor="rgba(0,0,0,0.05)" p={0.5} borderRadius={1}>{tr.input}</Typography>
+                                  <Typography variant="caption" color="textSecondary">Expected Output:</Typography>
+                                  <Typography variant="body2" fontFamily="monospace" bgcolor="rgba(0,0,0,0.05)" p={0.5} borderRadius={1}>{tr.output}</Typography>
+                                </>
+                              )}
+                              <Typography variant="caption" color="textSecondary">Your Output:</Typography>
+                              <Typography variant="body2" fontFamily="monospace" bgcolor="rgba(0,0,0,0.05)" p={0.5} borderRadius={1} color={tr.passed ? '#166534' : '#991B1B'}>{tr.actualOutput || 'No Output'}</Typography>
+                            </Box>
+                          </Box>
+                        ))}
                       </Box>
-                    </Box>
-                  )}
+                    )}
+                  </Box>
                 </Box>
               </Box>
 
-              {/* RIGHT PANE - Proctoring Sidebar (flex 2.5) */}
+              {/* RIGHT PANE - Proctoring Sidebar */}
               <Box
                 sx={{
                   flex: 2.5,
