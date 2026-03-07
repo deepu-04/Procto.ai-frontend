@@ -19,14 +19,12 @@ import {
   IconVideo,
   IconMicrophone,
   IconWifi,
-  IconShieldLock,
   IconApps,
   IconCircleCheckFilled,
   IconAlertCircleFilled,
   IconLoader2,
   IconShieldCheck,
   IconScanEye,
-  IconAlertTriangleFilled,
 } from '@tabler/icons-react';
 import MobileOffIcon from '@mui/icons-material/MobileOff'; // Added Mobile Restriction Icon
 import { useNavigate, useParams } from 'react-router-dom';
@@ -192,12 +190,10 @@ export default function ExamDetails() {
     camera: 'idle',
     audio: 'idle',
     network: 'idle',
-    vpn: 'idle',
     apps: 'idle',
   });
 
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
-  const [showVpnPopup, setShowVpnPopup] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [idleIndex, setIdleIndex] = useState(0);
@@ -210,7 +206,6 @@ export default function ExamDetails() {
     { icon: <IconVideo size={64} />, label: 'Ready to check Camera' },
     { icon: <IconMicrophone size={64} />, label: 'Ready to check Audio' },
     { icon: <IconWifi size={64} />, label: 'Ready to check Network' },
-    { icon: <IconShieldLock size={64} />, label: 'Ready to check VPN/Proxy' },
     { icon: <IconApps size={64} />, label: 'Ready to check Background Apps' },
   ];
 
@@ -324,83 +319,7 @@ export default function ExamDetails() {
     }
   };
 
-  /* --- 3. STRICT VPN / Proxy Detection --- */
-  const checkVPN = async () => {
-    updateCheck('vpn', 'loading');
-    let isVpnDetected = false;
-
-    try {
-      // 1. Fetch public IP safely
-      const ipRes = await fetch('https://api64.ipify.org?format=json');
-      const ipData = await ipRes.json();
-      const publicIp = ipData.ip;
-
-      // 2. Fetch ISP data. If this fails due to adblocker, we catch it and DO NOT falsely flag.
-      try {
-        const ispRes = await fetch(`https://ipapi.co/${publicIp}/json/`);
-        if (ispRes.ok) {
-          const ispData = await ispRes.json();
-          const org = (ispData.org || '').toLowerCase();
-          const badKeywords = [
-            'vpn', 'proxy', 'tor', 'digitalocean', 'aws', 
-            'cloudflare', 'datacenter', 'hosting', 'linode'
-          ];
-          if (badKeywords.some((kw) => org.includes(kw))) {
-            isVpnDetected = true;
-          }
-        }
-      } catch (ispErr) {
-        console.warn("ISP check blocked by browser, continuing without false positive.");
-      }
-
-      // 3. WebRTC Leak check (Detects hidden VPNs/mismatched routing)
-      const isWebRTCLeaking = await new Promise((resolve) => {
-        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-        pc.createDataChannel('');
-        let resolved = false;
-
-        pc.onicecandidate = (e) => {
-          if (!e.candidate) return;
-          const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/g;
-          const matches = e.candidate.candidate.match(ipRegex);
-          
-          if (matches) {
-            const webrtcIp = matches[0];
-            const isPrivate = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.)/.test(webrtcIp);
-            
-            // If WebRTC returns a PUBLIC IP that is different from our HTTP public IP -> VPN ACTIVE
-            if (!isPrivate && webrtcIp !== publicIp) {
-              resolved = true;
-              resolve(true); 
-            }
-          }
-        };
-
-        pc.createOffer().then((offer) => pc.setLocalDescription(offer)).catch(() => {});
-        
-        setTimeout(() => {
-          if (!resolved) resolve(false); // Timeout means no leak found
-        }, 3000);
-      });
-
-      if (isWebRTCLeaking) isVpnDetected = true;
-
-    } catch (err) {
-      console.error("Network check encountered an error:", err);
-      // We don't fail the user if the check itself breaks due to network instability
-    }
-
-    if (isVpnDetected) {
-      updateCheck('vpn', 'error');
-      setShowVpnPopup(true); // Triggers the red popup
-      return false; // Blocks the exam from continuing
-    }
-
-    updateCheck('vpn', 'success');
-    return true;
-  };
-
-  /* --- 4. Background Apps / Visibility Scan --- */
+  /* --- 3. Background Apps / Visibility Scan --- */
   const checkApps = async () => {
     updateCheck('apps', 'loading');
     for (let i = 0; i <= 100; i += 5) {
@@ -421,7 +340,7 @@ export default function ExamDetails() {
     setStartInput('');
     
     // Reset all states
-    setChecks({ camera: 'idle', audio: 'idle', network: 'idle', vpn: 'idle', apps: 'idle' });
+    setChecks({ camera: 'idle', audio: 'idle', network: 'idle', apps: 'idle' });
 
     // Ensure we await each step and break if it fails
     const hwPass = await checkHardware();
@@ -429,9 +348,6 @@ export default function ExamDetails() {
 
     const netPass = await checkNetwork();
     if (!netPass) { setIsDiagnosing(false); return; }
-
-    const vpnPass = await checkVPN();
-    if (!vpnPass) { setIsDiagnosing(false); return; }
 
     const appsPass = await checkApps();
     if (!appsPass) { setIsDiagnosing(false); return; }
@@ -832,49 +748,6 @@ export default function ExamDetails() {
               }}
             >
               Start Exam Now
-            </Button>
-          </DialogContent>
-        </Dialog>
-
-        {/* ================= VPN / PROXY DETECTED POPUP ================= */}
-        <Dialog
-          open={showVpnPopup}
-          maxWidth="xs"
-          fullWidth
-          PaperProps={{
-            sx: {
-              borderRadius: '24px',
-              overflow: 'visible',
-              bgcolor: isDark ? '#1E293B' : '#ffffff',
-              boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
-            },
-          }}
-        >
-          <Box sx={{ bgcolor: '#EF4444', height: 140, borderTopLeftRadius: '24px', borderTopRightRadius: '24px', position: 'relative' }}>
-            <Box sx={{ position: 'absolute', bottom: -40, left: '50%', transform: 'translateX(-50%)', width: 80, height: 80, bgcolor: isDark ? '#0F172A' : '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 25px rgba(239, 68, 68, 0.3)' }}>
-              <IconAlertTriangleFilled size={44} color="#EF4444" />
-            </Box>
-          </Box>
-
-          <DialogContent sx={{ pt: 7, pb: 4, px: 4, textAlign: 'center' }}>
-            <Typography variant="h5" fontWeight="900" color={isDark ? 'white' : '#1E293B'} gutterBottom>
-              Proxy / VPN Detected
-            </Typography>
-            <Typography variant="body2" color={isDark ? '#94A3B8' : 'textSecondary'} mb={4} lineHeight={1.6}>
-              Our security systems detected an active VPN tunnel or proxy routing.{' '}
-              <b>You must disconnect your VPN to proceed.</b>
-            </Typography>
-
-            <Button
-              fullWidth
-              variant="contained"
-              onClick={() => setShowVpnPopup(false)}
-              sx={{
-                py: 1.8, borderRadius: '14px', fontWeight: '800', fontSize: '1rem', bgcolor: '#EF4444', textTransform: 'none',
-                boxShadow: '0 8px 20px rgba(239, 68, 68, 0.4)', '&:hover': { bgcolor: '#DC2626' },
-              }}
-            >
-              I Understand, Retry
             </Button>
           </DialogContent>
         </Dialog>
