@@ -25,6 +25,7 @@ import {
 import { motion } from 'framer-motion';
 import { keyframes } from '@mui/system';
 
+// --- Firebase Authentication ---
 import { 
   createUserWithEmailAndPassword, 
   updateProfile,
@@ -33,8 +34,10 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider } from '../../firebase'; 
 
+// --- EmailJS Integration ---
 import emailjs from '@emailjs/browser';
 
+// --- Proctoring & UI Icons ---
 import {
   VideocamOutlined,
   VisibilityOutlined,
@@ -64,6 +67,7 @@ import { setCredentials } from './../../slices/authSlice';
 
 import axiosInstance from '../../axios'; 
 
+/* ================== ANIMATIONS ================== */
 const spin = keyframes`
   100% { transform: translate(-50%, -50%) rotate(360deg); }
 `;
@@ -71,6 +75,7 @@ const reverseSpin = keyframes`
   100% { transform: translate(-50%, -50%) rotate(-360deg); }
 `;
 
+/* ================== VALIDATION ================== */
 const schema = yup.object({
   name: yup.string().min(2, 'Too short').required('Name is required'),
   email: yup.string().email('Invalid email').required('Email is required'),
@@ -86,6 +91,7 @@ function SlideDownTransition(props) {
   return <Slide {...props} direction="down" />;
 }
 
+/* ================== SWIPE TO LOGIN COMPONENT (iOS STYLE) ================== */
 const SwipeToLogin = ({ onSwipeSuccess, isLoading }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(0);
@@ -207,11 +213,13 @@ export default function Register() {
     setToast({ open: true, message, type });
   };
 
+  // 🔥 THE DASHBOARD ROUTER: Safely returns exactly where the user needs to go
   const getDashboardPath = (role) => {
     if (role === 'teacher') return '/admin';
-    return '/dashboard';
+    return '/dashboard'; // Default Student path
   };
 
+  // Automatically redirect if already logged in based on state
   useEffect(() => {
     if (userInfo?.token && userInfo?.role) {
       navigate(getDashboardPath(userInfo.role), { replace: true });
@@ -303,6 +311,7 @@ export default function Register() {
         await sendWelcomeEmail(user.email, user.displayName);
       }
 
+      // Hit the unified backend route
       const res = await axiosInstance.post('/api/users/google', {
         name: user.displayName,
         email: user.email,
@@ -313,8 +322,7 @@ export default function Register() {
       const backendToken = res.data.token;
 
       // 🔥 FIX: Always use the role returned by the backend!
-      // If the user already existed in the DB as a 'student', the backend will return 'student',
-      // even if they accidentally clicked 'teacher' on the Google prompt today.
+      // This strictly prevents a Teacher from getting stuck in a Student dashboard loop.
       const trueRole = res.data.role || selectedRole;
 
       const userPayload = {
@@ -336,6 +344,7 @@ export default function Register() {
          showToast(`Logged in successfully!`, 'success');
       }
 
+      // Safely route the user
       navigate(getDashboardPath(trueRole), { replace: true });
       
     } catch (error) {

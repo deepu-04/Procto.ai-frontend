@@ -54,6 +54,7 @@ import * as yup from 'yup';
 import { useDispatch, useSelector } from 'react-redux';
 import { setCredentials } from './../../slices/authSlice';
 
+// FIXED IMPORT: Path points directly to the file next to firebase.js
 import axiosInstance from '../../axios';
 
 const spin = keyframes`
