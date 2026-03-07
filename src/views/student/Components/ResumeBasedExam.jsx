@@ -12,7 +12,8 @@ import {
 } from "@heroicons/react/24/solid";
 
 // FIX: Import your configured axios instance to route requests to the live backend
-import axiosInstance from "../../axios";
+// ✅ Correct path
+import axiosInstance from '../../../axios';
 
 export default function ResumeExam() {
   const navigate = useNavigate();

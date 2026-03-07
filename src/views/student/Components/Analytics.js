@@ -18,7 +18,8 @@ import {
 } from '@mui/icons-material';
 
 import PageContainer from 'src/components/container/PageContainer';
-import axiosInstance from '../../axios'; // FIX: Imported your secure axios instance
+// ✅ Correct path
+import axiosInstance from '../../../axios'; // FIX: Imported your secure axios instance
 
 /* ================= DEMO DATA ================= */
 const DEMO_PERFORMANCE = [

@@ -1,13 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { Grid, Typography, CircularProgress, Box } from '@mui/material';
-import PageContainer from 'src/components/container/PageContainer';
+
+// Adjusted to use standard relative paths to prevent Webpack/Vite build crashes
+import PageContainer from '../../../components/container/PageContainer';
 import BlankCard from '../../../components/shared/BlankCard';
 import ExamCard from './ExamCard';
-import { useGetExamsQuery } from 'src/slices/examApiSlice';
+import { useGetExamsQuery } from '../../../slices/examApiSlice';
 
 const Exams = () => {
-  // The token is now automatically attached to this request by your updated apiSlice!
-  const { data: userExams = [], isLoading, isError, error } = useGetExamsQuery();
+  // RTK Query fetches the data
+  const { data, isLoading, isError, error } = useGetExamsQuery();
+
+  // 🛠️ THE FIX: Ultra-robust data extraction.
+  // This ensures that whether the backend sends an array directly, or wraps it 
+  // in { data: [...] } or { exams: [...] }, the frontend will always get the array.
+  const userExams = Array.isArray(data) 
+    ? data 
+    : Array.isArray(data?.data) 
+      ? data.data 
+      : Array.isArray(data?.exams) 
+        ? data.exams 
+        : [];
 
   // --- Dynamic Dark Mode State ---
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -27,8 +40,6 @@ const Exams = () => {
     return () => observer.disconnect();
   }, []);
 
-  console.log('Exam User:', userExams);
-
   // 🔄 Loading
   if (isLoading) {
     return (
@@ -46,22 +57,24 @@ const Exams = () => {
           sx={{ color: isDark ? '#F87171' : 'error.main' }} 
           textAlign="center"
         >
-          Failed to load exams. {error?.data?.message || 'Please try again later.'}
+          Failed to load exams. {error?.data?.message || error?.error || 'Please try again later.'}
         </Typography>
       </PageContainer>
     );
   }
 
   // 📭 Empty
-  if (!Array.isArray(userExams) || userExams.length === 0) {
+  if (userExams.length === 0) {
     return (
       <PageContainer title="Exams">
-        <Typography 
-          textAlign="center" 
-          sx={{ color: isDark ? '#94A3B8' : 'text.secondary' }}
-        >
-          No exams available for you right now.
-        </Typography>
+        <Box minHeight="50vh" display="flex" alignItems="center" justifyContent="center">
+          <Typography 
+            textAlign="center" 
+            sx={{ color: isDark ? '#94A3B8' : 'text.secondary' }}
+          >
+            No exams available for you right now.
+          </Typography>
+        </Box>
       </PageContainer>
     );
   }
@@ -74,11 +87,12 @@ const Exams = () => {
 
     // If 'a' is expired but 'b' is not, 'a' goes down the list
     if (aIsExpired && !bIsExpired) return 1;
+    
     // If 'b' is expired but 'a' is not, 'b' goes down the list
     if (!aIsExpired && bIsExpired) return -1;
 
-    // If both are in the same state (both active or both expired), keep original order
-    return 0;
+    // If both are active, sort by which one is happening sooner
+    return new Date(a.liveDate) - new Date(b.liveDate);
   });
 
   // ✅ Success

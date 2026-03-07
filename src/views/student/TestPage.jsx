@@ -23,7 +23,7 @@ import { useSaveCheatingLogMutation } from '../../slices/cheatingLogApiSlice';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { useCheatingLog } from '../../context/CheatingLogContext';
-import axiosInstance from '../../axios'; // Added to securely hit relative backend paths
+import axiosInstance from '../../../axios'; // Added to securely hit relative backend paths
 
 // --- Dynamic Screen Watermarking ---
 const WatermarkOverlay = ({ userInfo }) => {
