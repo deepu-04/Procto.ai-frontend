@@ -1,24 +1,42 @@
-import { createSlice } from '@reduxjs/toolkit';
+import { createSlice } from "@reduxjs/toolkit";
+
+const getUserInfo = () => {
+  try {
+    if (typeof window !== "undefined") {
+      const storedUser = localStorage.getItem("userInfo");
+      return storedUser ? JSON.parse(storedUser) : null;
+    }
+    return null;
+  } catch (error) {
+    console.error("Failed to load userInfo:", error);
+    return null;
+  }
+};
 
 const initialState = {
-  userInfo: JSON.parse(localStorage.getItem('userInfo')) || null,
+  userInfo: getUserInfo(),
 };
 
 const authSlice = createSlice({
-  name: 'auth',
+  name: "auth",
   initialState,
   reducers: {
     setCredentials: (state, action) => {
       state.userInfo = action.payload;
 
-      localStorage.setItem('userInfo', JSON.stringify(action.payload));
-      localStorage.setItem('token', action.payload.token); 
+      if (typeof window !== "undefined") {
+        localStorage.setItem("userInfo", JSON.stringify(action.payload));
+        localStorage.setItem("token", action.payload.token);
+      }
     },
 
     logout: (state) => {
       state.userInfo = null;
-      localStorage.removeItem('userInfo');
-      localStorage.removeItem('token');
+
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("userInfo");
+        localStorage.removeItem("token");
+      }
     },
   },
 });

@@ -3,32 +3,39 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 const baseQuery = fetchBaseQuery({
   baseUrl: "https://procto-ai-backend.onrender.com/api",
   credentials: "include",
+
   prepareHeaders: (headers, { getState }) => {
-    // 1. Try to get the token directly from Redux state first
-    let token = getState().auth?.userInfo?.token;
+    let token = null;
 
-    // 2. Fallback 1: Check localStorage for a standalone 'token' key
-    if (!token) {
-      token = localStorage.getItem("token");
-    }
+    try {
+      // 1️⃣ Try Redux state first
+      const state = getState();
+      token = state?.auth?.userInfo?.token;
 
-    // 3. Fallback 2: Check localStorage inside the 'userInfo' JSON object
-    if (!token) {
-      const userInfoStr = localStorage.getItem("userInfo");
-      if (userInfoStr) {
-        try {
+      // 2️⃣ Fallback: localStorage token
+      if (!token && typeof window !== "undefined") {
+        token = localStorage.getItem("token");
+      }
+
+      // 3️⃣ Fallback: token inside userInfo
+      if (!token && typeof window !== "undefined") {
+        const userInfoStr = localStorage.getItem("userInfo");
+
+        if (userInfoStr) {
           const userInfo = JSON.parse(userInfoStr);
-          token = userInfo.token;
-        } catch (e) {
-          console.error("Failed to parse userInfo in apiSlice", e);
+          token = userInfo?.token;
         }
       }
+    } catch (error) {
+      console.error("Token retrieval error:", error);
     }
 
-    // 4. If we successfully found a token, attach it to the headers
+    // 4️⃣ Attach token if available
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
+
+    headers.set("Content-Type", "application/json");
 
     return headers;
   },

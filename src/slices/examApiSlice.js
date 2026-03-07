@@ -1,41 +1,41 @@
-import { apiSlice } from './apiSlice';
+import { apiSlice } from "./apiSlice";
 
 export const examApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getExams: builder.query({
-      query: () => '/exams',
-      providesTags: ['Exam'],
+      query: () => "/exams",
+      providesTags: ["Exam"],
     }),
 
     createExam: builder.mutation({
       query: (data) => ({
-        url: '/exams',
-        method: 'POST',
+        url: "/exams",
+        method: "POST",
         body: data,
       }),
-      invalidatesTags: ['Exam'],
+      invalidatesTags: ["Exam"],
     }),
 
     deleteExam: builder.mutation({
       query: (examId) => ({
         url: `/exams/${examId}`,
-        method: 'DELETE',
+        method: "DELETE",
       }),
-      invalidatesTags: ['Exam'],
+      invalidatesTags: ["Exam"],
     }),
 
     createQuestion: builder.mutation({
       query: (data) => ({
-        url: '/questions',
-        method: 'POST',
+        url: "/questions",
+        method: "POST",
         body: data,
       }),
-      invalidatesTags: ['Question'],
+      invalidatesTags: ["Question"],
     }),
 
     getQuestions: builder.query({
       query: (examId) => `/questions/${examId}`,
-      providesTags: ['Question'],
+      providesTags: ["Question"],
     }),
   }),
 });
