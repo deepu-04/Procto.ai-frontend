@@ -139,7 +139,9 @@ const TestPage = () => {
   useEffect(() => {
     if (Array.isArray(userExamdata)) {
       const exam = userExamdata.find((e) => e.examId === examId);
-      if (exam?.duration) setExamDurationInSeconds(exam.duration);
+      if (exam?.duration) {
+  setExamDurationInSeconds(exam.duration * 60);
+}
     }
   }, [userExamdata, examId]);
 
@@ -507,7 +509,7 @@ const TestPage = () => {
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
+      if (!document.fullscreenElement && !hasAutoSubmittedRef.current) {
         setIsFullscreen(false);
         const newStrikes = fullscreenStrikes + 1;
         setFullscreenStrikes(newStrikes);
@@ -535,36 +537,93 @@ const TestPage = () => {
   }, [fullscreenStrikes, registerViolation]);
 
   // --- SECTION TRANSITION & SUBMISSION LOGIC ---
-  const handleTestSubmission = async () => {
-    if (isSubmitting) return;
+  const handleTestSubmission = useCallback(async () => {
+  if (isSubmitting) return;
 
-    setIsSubmitting(true);
+  setIsSubmitting(true);
 
-    try {
-      const payload = {
-        examId,
-        username: userInfo?.name,
-        email: userInfo?.email,
-        ...cheatingLogRef.current,
-      };
+  try {
+    const token = localStorage.getItem("token");
 
-      await saveCheatingLogMutation(payload).unwrap();
-
-      toast.success('Exam submitted successfully');
-      
-      // Ensure fullscreen is closed smoothly
-      if (document.fullscreenElement) {
-        await document.exitFullscreen().catch(err => console.log(err));
-      }
-
-      navigate('/success');
-    } catch (error) {
-      console.error('Submission Error:', error);
-      toast.error(error?.data?.message || 'Submission failed');
+    // ================= TOKEN CHECK =================
+    if (!token) {
+      toast.error("Session expired. Please login again.");
+      navigate("/login");
       setIsSubmitting(false);
-      hasAutoSubmittedRef.current = false; // Reset to allow retry on network failure
+      return;
     }
-  };
+
+    // ================= PREVENT EMPTY SUBMISSION =================
+    if (Object.keys(answers).length === 0) {
+      toast.error("No answers selected");
+      setIsSubmitting(false);
+      return;
+    }
+
+    // ================= FORMAT MCQ ANSWERS =================
+    const userResponses = Object.keys(answers).map((idx) => {
+      const index = Number(idx);
+
+      return {
+        questionId: questions[index]?._id,
+        selectedOption: answers[index],
+      };
+    });
+
+    // ================= SUBMIT RESULT =================
+    await axiosInstance.post(
+      "/api/results/submit",
+      {
+        examId,
+        answers: userResponses,
+        codingSubmissions: [], // MCQ section only
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    // ================= SAVE CHEATING LOG =================
+    const payload = {
+      examId,
+      username: userInfo?.name,
+      email: userInfo?.email,
+      ...cheatingLogRef.current,
+    };
+
+    await saveCheatingLogMutation(payload).unwrap();
+
+    toast.success("Exam submitted successfully");
+
+    // ================= EXIT FULLSCREEN =================
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {});
+    }
+
+    navigate("/success");
+
+  } catch (error) {
+
+    console.error("Submission Error:", error);
+
+    toast.error(
+      error?.response?.data?.message || "Submission failed. Check connection."
+    );
+
+    setIsSubmitting(false);
+    hasAutoSubmittedRef.current = false;
+  }
+}, [
+  answers,
+  questions,
+  examId,
+  userInfo,
+  saveCheatingLogMutation,
+  navigate,
+  isSubmitting,
+]);
 
   const handleSectionChangeAttempt = (sectionValue) => {
     if (sectionValue === 'coding') {
@@ -612,15 +671,15 @@ const TestPage = () => {
     });
   };
 
-  const formatTime = (seconds) => new Date(seconds * 1000).toISOString().substr(11, 8);
+  const formatTime = (seconds = 0) =>
+  new Date(seconds * 1000).toISOString().substr(11, 8);
 
   const currentQ = questions[currentQuestionIdx] || {};
   const displayQuestionText =
     currentQ.questionText || currentQ.question || currentQ.text || currentQ.title || 'Loading...';
   const currentOptions = currentQ.options || currentQ.choices || currentQ.answers || [];
 
-  const attemptedCount = Object.keys(answers).length;
-
+  const attemptedCount = Object.keys(answers || {}).length;
   // Dynamically checking if it's the last question or only question available
   const isLastQuestion = questions.length === 0 || currentQuestionIdx === questions.length - 1;
 

@@ -152,7 +152,9 @@ export default function Coder() {
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
   const [revisitQuestions, setRevisitQuestions] = useState(new Set());
-  const [answers, setAnswers] = useState({}); // Tracking solved code questions
+  const [answers, setAnswers] = useState({}); 
+  const [codingSubmissions, setCodingSubmissions] = useState([]);
+  // Tracking solved code questions
 
   // Security States
   const [isSuspiciousEnv, setIsSuspiciousEnv] = useState(false);
@@ -176,7 +178,9 @@ export default function Coder() {
 
   useEffect(() => {
     if (Array.isArray(userExamdata)) {
-      const exam = userExamdata.find((e) => e.examId === examId);
+      const exam = userExamdata.find(
+  (e) => e.examId === examId || e._id === examId
+);
       if (exam?.duration) setExamDurationInSeconds(exam.duration * 60);
     }
   }, [userExamdata, examId]);
@@ -197,7 +201,7 @@ export default function Coder() {
       toast.error('System Integrity critical. Auto-submitting exam.');
       handleTestSubmission();
     }
-  }, [riskScore]);
+  }, [riskScore , handleTestSubmission]);
 
   const getTrustColor = () => {
     if (trustScore > 50) return '#22C55E';
@@ -621,36 +625,119 @@ export default function Coder() {
   };
 
   const handleSubmitSolution = () => {
-    setAnswers((prev) => ({ ...prev, [currentQuestionIdx]: true }));
-    toast.success('Solution submitted successfully!');
+
+  if (!currentQ?._id) {
+    toast.error("Question not loaded properly");
+    return;
+  }
+
+  const submission = {
+    questionId: currentQ._id,
+    code: code,
+    language: language || "javascript",
   };
+
+  setCodingSubmissions((prev) => {
+
+    const existing = prev.find(
+      (item) => item.questionId === submission.questionId
+    );
+
+    if (existing) {
+      return prev.map((item) =>
+        item.questionId === submission.questionId ? submission : item
+      );
+    }
+
+    return [...prev, submission];
+  });
+
+  // mark coding question attempted
+  setAnswers((prev) => ({
+    ...prev,
+    [currentQuestionIdx]: true
+  }));
+
+  toast.success("Solution submitted successfully!");
+};
 
   const handleTestSubmission = async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    hasAutoSubmittedRef.current = true;
 
-    try {
-      const payload = {
-        ...cheatingLogRef.current,
-        username: userInfo?.name,
-        email: userInfo?.email,
-        examId,
-      };
-      
-      await saveCheatingLogMutation(payload).unwrap();
+  if (isSubmitting) return;
 
-      if (document.fullscreenElement) {
-        await document.exitFullscreen().catch(err => console.error("Fullscreen exit error:", err));
+  setIsSubmitting(true);
+
+  hasAutoSubmittedRef.current = true;
+
+  try {
+
+    const token = localStorage.getItem("token");
+
+    // ================= FORMAT MCQ ANSWERS =================
+    const formattedAnswers = {};
+
+    Object.keys(answers).forEach((idx) => {
+
+      const questionId = questions[idx]?._id;
+
+      if (questionId) {
+        formattedAnswers[questionId] = answers[idx];
       }
 
-      navigate(`/success`);
-    } catch {
-      toast.error('Submission failed. Check connection.');
-      setIsSubmitting(false);
-      hasAutoSubmittedRef.current = false;
+    });
+
+    // ================= SUBMIT RESULT =================
+    await axiosInstance.post(
+      "/api/results/submit",
+      {
+        examId,
+        answers: formattedAnswers,
+        codingSubmissions: codingSubmissions || [],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    // ================= SAVE CHEATING LOG =================
+    const payload = {
+      ...cheatingLogRef.current,
+      username: userInfo?.name,
+      email: userInfo?.email,
+      examId,
+    };
+
+    await saveCheatingLogMutation(payload).unwrap();
+
+    toast.success("Exam submitted successfully");
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch((err) =>
+        console.error("Fullscreen exit error:", err)
+      );
     }
-  };
+
+    navigate("/success");
+
+  } catch (error) {
+
+    console.error(error);
+
+    toast.error(
+      error?.response?.data?.message || "Submission failed. Check connection."
+    );
+
+    setIsSubmitting(false);
+
+    hasAutoSubmittedRef.current = false;
+
+  }
+};
+
+
+
 
   const handlePaletteClick = (idx) => {
     setCurrentQuestionIdx(idx);
@@ -672,14 +759,14 @@ export default function Coder() {
     });
   };
 
-  const formatTime = (seconds) => new Date(seconds * 1000).toISOString().substr(11, 8);
+const formatTime = (seconds = 0) => new Date(seconds * 1000).toISOString().substr(11, 8);
 
   const currentQ = questions[currentQuestionIdx] || {};
   const displayQuestionTitle =
     currentQ.question || currentQ.title || currentQ.name || `Question ${currentQuestionIdx + 1}`;
   const displayQuestionText =
     currentQ.description || currentQ.text || currentQ.body || currentQ.content || 'Question details are unavailable.';
-  const attemptedCount = Object.keys(answers).length;
+  const attemptedCount = Object.keys(answers || {}).length;
 
   if (isExamsLoading || isQuestionsLoading)
     return (
