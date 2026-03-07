@@ -24,7 +24,7 @@ import { useSelector } from 'react-redux';
 // IMPORTANT: It is highly recommended to use environment variables in production
 // Example: const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIza...";
 // =========================================================================
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyBdRnvZjK-IPik9W1XAujKo2Olh2HOEERQ";
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyBwMUMjrKlO0lhz2UEYFsJLqYxAeLsDzBg";
 
 // =========================================================================
 // AI CHATBOT WIDGET COMPONENT (iOS THEME)
@@ -142,7 +142,7 @@ const ProctoAIChatbot = ({ isDark }) => {
       Analyze the user's query: "${text}"
 
       IF the user wants to CREATE AN EXAM or TEST:
-      Generate exactly 3 multiple choice questions on that topic. You MUST return ONLY a JSON object in this exact format:
+      Generate exactly 10 multiple choice questions on that topic. You MUST return ONLY a JSON object in this exact format:
       {
         "type": "exam",
         "message": "I have successfully provisioned a secure exam environment for that topic. It is waiting for you in your Active Exams dashboard.",
@@ -169,7 +169,7 @@ const ProctoAIChatbot = ({ isDark }) => {
       CRITICAL RULE: Output ONLY raw JSON. Do not include markdown blocks like \`\`\`json.`;
 
       // FIX 1: Updated to gemini-1.5-flash (the stable, working endpoint)
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }] })

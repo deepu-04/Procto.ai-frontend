@@ -22,7 +22,7 @@ import {
 // =========================================================================
 // IMPORTANT: Replace with your actual Gemini API Key in .env
 // =========================================================================
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyBdRnvZjK-IPik9W1XAujKo2Olh2HOEERQ";
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyBwMUMjrKlO0lhz2UEYFsJLqYxAeLsDzBg";
 
 /* ================= AMBIENT BACKGROUND GLOWS ================= */
 const AmbientBackground = () => (
@@ -193,7 +193,7 @@ export default function HelpSupport() {
       Analyze the user's query: "${text}"
 
       IF the user wants to CREATE AN EXAM, TEST, or QUIZ:
-      Generate exactly 3 multiple choice questions on that topic. You MUST return ONLY a JSON object in this exact format:
+      Generate exactly 10 multiple choice questions on that topic. You MUST return ONLY a JSON object in this exact format:
       {
         "type": "exam",
         "message": "I have successfully created an exam on that topic! You can find it waiting for you in your Assessments dashboard.",
@@ -220,7 +220,7 @@ export default function HelpSupport() {
       CRITICAL RULE: Output ONLY raw JSON. Do not include markdown blocks like \`\`\`json.`;
 
       // FIX 1: Updated to the correct stable model (gemini-1.5-flash)
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }] })
