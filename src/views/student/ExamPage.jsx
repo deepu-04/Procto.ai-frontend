@@ -18,12 +18,13 @@ import {
   IconSettingsAutomation,
   IconUserShield 
 } from '@tabler/icons-react';
-import { useSelector } from 'react-redux'; // Needed to fetch user name for tooltip
+import { useSelector } from 'react-redux';
 
 // =========================================================================
-// IMPORTANT: Replace with your actual Gemini API Key
+// IMPORTANT: It is highly recommended to use environment variables in production
+// Example: const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIza...";
 // =========================================================================
-const GEMINI_API_KEY = "AIzaSyBdRnvZjK-IPik9W1XAujKo2Olh2HOEERQ";
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyBdRnvZjK-IPik9W1XAujKo2Olh2HOEERQ";
 
 // =========================================================================
 // AI CHATBOT WIDGET COMPONENT (iOS THEME)
@@ -165,9 +166,10 @@ const ProctoAIChatbot = ({ isDark }) => {
         "message": "Your conversational response here."
       }
       
-      CRITICAL RULE: Output ONLY raw JSON.`;
+      CRITICAL RULE: Output ONLY raw JSON. Do not include markdown blocks like \`\`\`json.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      // FIX 1: Updated to gemini-1.5-flash (the stable, working endpoint)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }] })
@@ -188,24 +190,31 @@ const ProctoAIChatbot = ({ isDark }) => {
           cleanText = cleanText.substring(firstBrace, lastBrace + 1);
       }
       
-      const parsedData = JSON.parse(cleanText);
       let updatedMessages = [...newMessages];
 
-      if (parsedData.type === 'exam') {
-        const newExam = {
-          id: `ai-exam-${Date.now()}`,
-          date: new Date().toISOString(),
-          questions: parsedData.questions,
-          completed: false,
-          score: null,
-          jobDescription: parsedData.topic || "Custom AI Exam",
-          type: "mcq"
-        };
-        localStorage.setItem('procto_ai_exams', JSON.stringify([newExam, ...exams]));
-        updatedMessages.push({ sender: 'ai', text: parsedData.message });
-        window.dispatchEvent(new Event("storage")); 
-      } else {
-        updatedMessages.push({ sender: 'ai', text: parsedData.message });
+      // FIX 2: Added try-catch for JSON parsing. If Gemini ignores the prompt and sends plain text, it won't crash.
+      try {
+        const parsedData = JSON.parse(cleanText);
+        
+        if (parsedData.type === 'exam') {
+          const newExam = {
+            id: `ai-exam-${Date.now()}`,
+            date: new Date().toISOString(),
+            questions: parsedData.questions,
+            completed: false,
+            score: null,
+            jobDescription: parsedData.topic || "Custom AI Exam",
+            type: "mcq"
+          };
+          localStorage.setItem('procto_ai_exams', JSON.stringify([newExam, ...exams]));
+          updatedMessages.push({ sender: 'ai', text: parsedData.message });
+          window.dispatchEvent(new Event("storage")); 
+        } else {
+          updatedMessages.push({ sender: 'ai', text: parsedData.message });
+        }
+      } catch (parseError) {
+        // Fallback: If it's not JSON, just show what the AI said naturally
+        updatedMessages.push({ sender: 'ai', text: rawText.trim() });
       }
 
       setMessages(updatedMessages);
@@ -213,8 +222,8 @@ const ProctoAIChatbot = ({ isDark }) => {
     } catch (error) {
       console.error("Chatbot Error:", error);
       let errorMsg = "Proxy connection error. Please try again later.";
-      if (error.message.includes("API Key") || error.message.includes("API Request Failed")) {
-        errorMsg = "Agent initialization failed: Invalid API Key configuration.";
+      if (error.message.includes("API_KEY_INVALID") || error.message.includes("API Request Failed")) {
+        errorMsg = "Agent initialization failed: Invalid API Key configuration. Your key may have been revoked by Google if it was exposed in a public repository.";
       }
       setMessages((prev) => [...prev, { sender: 'ai', text: errorMsg }]);
     } finally {

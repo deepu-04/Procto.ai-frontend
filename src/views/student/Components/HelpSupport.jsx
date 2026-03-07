@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Box, IconButton, Typography, Drawer } from '@mui/material';
+import { Box, IconButton, Typography, Drawer, Avatar } from '@mui/material';
 import { useSelector } from 'react-redux';
 import {
   PlusIcon,
@@ -15,13 +15,14 @@ import {
   IconCode, 
   IconChartBar, 
   IconInfoCircle, 
-  IconSettingsAutomation 
+  IconSettingsAutomation,
+  IconUserShield
 } from '@tabler/icons-react';
 
 // =========================================================================
-// IMPORTANT: Replace with your actual Gemini API Key
+// IMPORTANT: Replace with your actual Gemini API Key in .env
 // =========================================================================
-const GEMINI_API_KEY = "AIzaSyBdRnvZjK-IPik9W1XAujKo2Olh2HOEERQ";
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyBdRnvZjK-IPik9W1XAujKo2Olh2HOEERQ";
 
 /* ================= AMBIENT BACKGROUND GLOWS ================= */
 const AmbientBackground = () => (
@@ -218,7 +219,8 @@ export default function HelpSupport() {
       
       CRITICAL RULE: Output ONLY raw JSON. Do not include markdown blocks like \`\`\`json.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      // FIX 1: Updated to the correct stable model (gemini-1.5-flash)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }] })
@@ -238,8 +240,15 @@ export default function HelpSupport() {
           cleanText = cleanText.substring(firstBrace, lastBrace + 1);
       }
       
-      const parsedData = JSON.parse(cleanText);
       let updatedMessages = [...newMessages];
+      let parsedData;
+
+      // FIX 2: Added a robust try/catch so the app doesn't crash if Gemini talks normally instead of using JSON
+      try {
+        parsedData = JSON.parse(cleanText);
+      } catch (parseError) {
+        parsedData = { type: 'chat', message: rawText.trim() };
+      }
 
       if (parsedData.type === 'exam') {
         const newExam = {
@@ -306,8 +315,13 @@ export default function HelpSupport() {
     setIsHistoryOpen(false);
   };
 
+  // Shared iOS UI Colors
+  const iosBlue = "#007AFF";
+  const iosLightGray = "#E9E9EB";
+  const iosDarkGray = "#262628";
+
   return (
-    <div className="h-full bg-[#FDFDFD] dark:bg-[#0A0A0C] text-gray-900 dark:text-gray-100 font-sans relative z-0 flex flex-col rounded-3xl overflow-hidden shadow-sm border border-gray-100 dark:border-white/5">
+    <div className="h-full bg-[#FDFDFD] dark:bg-[#0A0A0C] text-gray-900 dark:text-gray-100 font-sans relative z-0 flex flex-col rounded-3xl overflow-hidden shadow-sm border border-gray-100 dark:border-white/5" style={{ height: 'calc(100vh - 100px)' }}>
       
       {/* CSS to hide the scrollbar but keep functionality */}
       <style>{`
@@ -334,7 +348,6 @@ export default function HelpSupport() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            // Changed to fixed inset-0 and extremely high z-index to center on the whole screen
             className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-md"
             onClick={toggleListening}
           >
@@ -439,7 +452,7 @@ export default function HelpSupport() {
         )}
       </div>
 
-      {/* ================= BOTTOM INPUT BAR (Fixed inside flex layout) ================= */}
+      {/* ================= BOTTOM INPUT BAR ================= */}
       <div className="w-full px-6 pb-6 pt-2 z-20 shrink-0 relative">
         <div className="max-w-3xl mx-auto flex items-center bg-white dark:bg-[#1C1C1E] rounded-full p-2 pr-3 shadow-[0_10px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.5)] border border-gray-100 dark:border-white/10">
           <IconButton onClick={startNewChat} sx={{ color: isDark ? '#9CA3AF' : '#6B7280' }} title="New Chat">
@@ -468,7 +481,7 @@ export default function HelpSupport() {
         </div>
       </div>
 
-      {/* ================= HISTORY DRAWER (Slide from right) ================= */}
+      {/* ================= HISTORY DRAWER ================= */}
       <Drawer
         anchor="right"
         open={isHistoryOpen}
