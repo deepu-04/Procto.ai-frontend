@@ -12,7 +12,7 @@ const authSlice = createSlice({
       state.userInfo = action.payload;
 
       localStorage.setItem('userInfo', JSON.stringify(action.payload));
-      localStorage.setItem('token', action.payload.token); // 🔥 IMPORTANT
+      localStorage.setItem('token', action.payload.token); 
     },
 
     logout: (state) => {

@@ -23,7 +23,7 @@ import { useSelector } from 'react-redux'; // Needed to fetch user name for tool
 // =========================================================================
 // IMPORTANT: Replace with your actual Gemini API Key
 // =========================================================================
-const GEMINI_API_KEY = "AIzaSyDBVesyVmfM842QULvHXxPPIBG52heCiqs";
+const GEMINI_API_KEY = "AIzaSyBdRnvZjK-IPik9W1XAujKo2Olh2HOEERQ";
 
 // =========================================================================
 // AI CHATBOT WIDGET COMPONENT (iOS THEME)

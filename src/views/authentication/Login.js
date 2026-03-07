@@ -231,7 +231,7 @@ const Login = () => {
         const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
         const user = userCredential.user;
         
-        // 🔥 FIXED: Send proper email & password to backend instead of just the token!
+        // Standard Email/Password login hits the original login route
         const response = await axiosInstance.post('/api/users/login', { 
           email: values.email,
           password: values.password 
@@ -278,10 +278,12 @@ const Login = () => {
         sendWelcomeEmail(user.email, user.displayName);
       }
 
-      // 🔥 FIXED: Google accounts register their UID as the password, so we use it here to login
-      const response = await axiosInstance.post('/api/users/login', { 
+      // 🔥 FIXED: Google accounts now hit the unified backend route
+      const response = await axiosInstance.post('/api/users/google', { 
+        name: user.displayName,
         email: user.email,
-        password: user.uid 
+        uid: user.uid,
+        role: 'student' // Default fallback, backend will use existing role if logging in
       });
 
       localStorage.setItem('token', response.data.token);
@@ -292,23 +294,19 @@ const Login = () => {
         email: user.email, 
         name: user.displayName,
         avatar: user.photoURL,
-        role: response.data.role || 'student',
+        role: response.data.role, // Uses role retrieved from DB
         token: response.data.token
       }));
 
       showToast('Google Sign-In successful!', 'success');
       
       setTimeout(() => {
-        navigate(getDashboardPath(response.data.role || 'student'), { replace: true });
+        navigate(getDashboardPath(response.data.role), { replace: true });
       }, 500); 
       
     } catch (error) {
-      if (error?.response?.status === 401) {
-        showToast('Account not found in Procto.ai. Please register first!', 'error');
-      } else {
-        const errMsg = error.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled' : 'Google Sign-In failed.';
-        showToast(errMsg, 'error');
-      }
+      const errMsg = error.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled' : 'Google Sign-In failed.';
+      showToast(errMsg, 'error');
     } finally {
       setIsGoogleLoading(false); 
     }

@@ -7,23 +7,23 @@ import {
   IconLockSquareRounded,
 } from '@tabler/icons-react';
 
-/* ===== IOS STATUS STYLE MAP ===== */
+
 const statusConfig = {
   ACTIVE: {
     label: 'Live Now',
-    color: '#10B981', // Emerald Green
+    color: '#10B981', 
     bg: '#D1FAE5',
     icon: <IconCircleCheckFilled size={16} />,
   },
   UPCOMING: {
     label: 'Upcoming',
-    color: '#F59E0B', // Amber
+    color: '#F59E0B', 
     bg: '#FEF3C7',
     icon: <IconClockHour4 size={16} />,
   },
   COMPLETED: {
     label: 'Completed',
-    color: '#64748B', // Slate Gray
+    color: '#64748B', 
     bg: '#F1F5F9',
     icon: <IconLockSquareRounded size={16} />,
   },
@@ -37,18 +37,18 @@ const DashboardCard = ({
   footer,
   middlecontent,
 
-  /* 🔥 EXAM PROPS */
-  status, // "ACTIVE" | "UPCOMING" | "COMPLETED"
+  
+  status, 
   liveDate,
   deadDate,
   disabled = false,
 
-  /* Additional Styling Prop */
+  
   sx,
 }) => {
   const theme = useTheme();
 
-  // Clean Date Formatter (e.g., "Oct 24, 10:00 AM")
+  
   const formatDateTime = (date) => {
     return new Date(date).toLocaleString('en-IN', {
       month: 'short',
@@ -65,13 +65,13 @@ const DashboardCard = ({
       elevation={0}
       sx={{
         position: 'relative',
-        borderRadius: '24px', // Deep iOS rounding
-        border: '1px solid rgba(226, 232, 240, 0.8)', // Very subtle border
-        boxShadow: '0 10px 30px rgba(0,0,0,0.04)', // Soft, diffused shadow
+        borderRadius: '24px', 
+        border: '1px solid rgba(226, 232, 240, 0.8)', 
+        boxShadow: '0 10px 30px rgba(0,0,0,0.04)', 
         transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
         backgroundColor: '#ffffff',
         overflow: 'hidden',
-        // Lift effect on hover (only if not disabled)
+        
         '&:hover': disabled
           ? {}
           : {
@@ -82,7 +82,7 @@ const DashboardCard = ({
       }}
     >
       <CardContent sx={{ p: { xs: 3, sm: 4 }, position: 'relative', zIndex: 1 }}>
-        {/* ================= HEADER SECTION ================= */}
+        
         <Stack
           direction="row"
           justifyContent="space-between"
@@ -100,9 +100,9 @@ const DashboardCard = ({
             )}
           </Box>
 
-          {/* RIGHT SIDE ACTIONS / STATUS */}
+          
           <Box display="flex" alignItems="center" gap={1}>
-            {/* Status Chip (If Provided) */}
+          
             {currentStatus && (
               <Chip
                 icon={currentStatus.icon}
@@ -119,12 +119,12 @@ const DashboardCard = ({
               />
             )}
 
-            {/* Top Right Action Button (e.g., Refresh Icon) */}
+            
             {action && <Box ml={1}>{action}</Box>}
           </Box>
         </Stack>
 
-        {/* ================= DATE & TIME (WIDGET STYLE) ================= */}
+        
         {(liveDate || deadDate) && (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={3}>
             {liveDate && (
@@ -207,15 +207,13 @@ const DashboardCard = ({
           </Stack>
         )}
 
-        {/* ================= MAIN CONTENT ================= */}
+        
         <Box>{children}</Box>
       </CardContent>
 
-      {/* Optional Injections */}
       {middlecontent}
       {footer}
 
-      {/* ================= COMPLETED / DISABLED OVERLAY (IOS FROSTED GLASS) ================= */}
       {disabled && (
         <Box
           sx={{
@@ -226,7 +224,7 @@ const DashboardCard = ({
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: 'rgba(255, 255, 255, 0.4)',
-            backdropFilter: 'blur(6px)', // iOS Glass Effect
+            backdropFilter: 'blur(6px)', 
             WebkitBackdropFilter: 'blur(6px)',
             zIndex: 10,
             cursor: 'not-allowed',

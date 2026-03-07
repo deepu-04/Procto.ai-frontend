@@ -1,9 +1,9 @@
-// src/slices/userApiSlice.js
+
 import { apiSlice } from './apiSlice';
 
 export const userApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // 🔥 REGISTER
+    
     register: builder.mutation({
       query: (data) => ({
         url: '/users',
@@ -12,7 +12,7 @@ export const userApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // 🔥 LOGIN
+    
     login: builder.mutation({
       query: (data) => ({
         url: '/users/auth',
@@ -21,7 +21,7 @@ export const userApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // 🔥 LOGOUT
+    
     logout: builder.mutation({
       query: () => ({
         url: '/users/logout',

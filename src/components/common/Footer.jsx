@@ -11,13 +11,13 @@ import {
 export default function Footer() {
   return (
     <footer className="relative bg-[#F5F5F7] dark:bg-[#0A0A0C] border-t border-gray-200 dark:border-white/5 transition-colors duration-300 overflow-hidden pt-20 pb-8">
-      {/* Ambient iOS Style Bottom Glow */}
+      
       <div className="absolute inset-0 -z-10 pointer-events-none">
         <div className="absolute bottom-[-20%] left-1/2 -translate-x-1/2 h-[400px] w-[800px] bg-blue-500/10 dark:bg-[#007AFF]/15 blur-[120px] rounded-full transition-colors duration-500" />
       </div>
 
       <div className="max-w-7xl mx-auto px-6 grid gap-12 lg:gap-8 lg:grid-cols-12 relative z-10">
-        {/* ================= BRAND WIDGET ================= */}
+        
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -38,9 +38,9 @@ export default function Footer() {
           </Tilt>
         </motion.div>
 
-        {/* ================= LINKS GRID ================= */}
+        
         <div className="lg:col-span-8 grid grid-cols-2 sm:grid-cols-3 gap-8 pt-4">
-          {/* PLATFORM */}
+          
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -65,7 +65,7 @@ export default function Footer() {
             </ul>
           </motion.div>
 
-          {/* USE CASES */}
+          
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -92,7 +92,7 @@ export default function Footer() {
             </ul>
           </motion.div>
 
-          {/* CONTACT */}
+        
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -109,7 +109,7 @@ export default function Footer() {
                 <div className="p-2 rounded-full bg-gray-200/50 dark:bg-white/5 text-gray-700 dark:text-gray-300">
                   <EnvelopeIcon className="h-4 w-4" />
                 </div>
-                support@procto.ai
+                procto.ai@gmail.com
               </a>
               <a
                 href="tel:+919000000000"
@@ -134,7 +134,7 @@ export default function Footer() {
         </div>
       </div>
 
-      {/* ================= BOTTOM BAR ================= */}
+      
       <div className="max-w-7xl mx-auto px-6 mt-16 pt-8 border-t border-gray-300 dark:border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 text-sm font-medium text-gray-500 dark:text-[#8E8E93] transition-colors duration-300 relative z-10">
         <p>© {new Date().getFullYear()} Procto.ai. All rights reserved.</p>
 

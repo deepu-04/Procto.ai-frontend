@@ -6,14 +6,14 @@ const CheatingLogContext = createContext();
 export const CheatingLogProvider = ({ children }) => {
   const { userInfo } = useSelector((state) => state.auth);
   const [cheatingLog, setCheatingLog] = useState({
-    violations: [], // Array to store violation events
-    totalViolations: 0, // Computed from violations array length
+    violations: [], 
+    totalViolations: 0, 
     examId: '',
     username: userInfo?.name || '',
     email: userInfo?.email || '',
     examTerminated: false,
     terminationReason: '',
-    screenshots: [], // For evidence
+    screenshots: [], 
   });
 
   useEffect(() => {
@@ -30,12 +30,12 @@ export const CheatingLogProvider = ({ children }) => {
     setCheatingLog((prev) => {
       const updatedLog = { ...prev, ...newLog };
 
-      // If violations are being added, update totalViolations
+      
       if (newLog.violations) {
         updatedLog.totalViolations = newLog.violations.length;
       }
 
-      console.log('Updated cheating log:', updatedLog); // Debug log
+      console.log('Updated cheating log:', updatedLog); 
       return updatedLog;
     });
   };
@@ -51,7 +51,7 @@ export const CheatingLogProvider = ({ children }) => {
       terminationReason: '',
       screenshots: [],
     };
-    console.log('Reset cheating log:', resetLog); // Debug log
+    console.log('Reset cheating log:', resetLog); 
     setCheatingLog(resetLog);
   };
 

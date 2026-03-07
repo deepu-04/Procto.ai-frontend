@@ -25,7 +25,6 @@ import {
 import { motion } from 'framer-motion';
 import { keyframes } from '@mui/system';
 
-// --- Firebase Authentication ---
 import { 
   createUserWithEmailAndPassword, 
   updateProfile,
@@ -34,10 +33,8 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider } from '../../firebase'; 
 
-// --- EmailJS Integration ---
 import emailjs from '@emailjs/browser';
 
-// --- Proctoring & UI Icons ---
 import {
   VideocamOutlined,
   VisibilityOutlined,
@@ -65,10 +62,8 @@ import * as yup from 'yup';
 import { useDispatch, useSelector } from 'react-redux';
 import { setCredentials } from './../../slices/authSlice';
 
-// FIXED IMPORT: Path points directly to the file next to firebase.js
 import axiosInstance from '../../axios'; 
 
-/* ================== ANIMATIONS ================== */
 const spin = keyframes`
   100% { transform: translate(-50%, -50%) rotate(360deg); }
 `;
@@ -76,7 +71,6 @@ const reverseSpin = keyframes`
   100% { transform: translate(-50%, -50%) rotate(-360deg); }
 `;
 
-/* ================== VALIDATION ================== */
 const schema = yup.object({
   name: yup.string().min(2, 'Too short').required('Name is required'),
   email: yup.string().email('Invalid email').required('Email is required'),
@@ -88,12 +82,10 @@ const schema = yup.object({
   role: yup.string().oneOf(['student', 'teacher']).required('Select a role'),
 });
 
-// Transition for iOS-style Toast
 function SlideDownTransition(props) {
   return <Slide {...props} direction="down" />;
 }
 
-/* ================== SWIPE TO LOGIN COMPONENT (iOS STYLE) ================== */
 const SwipeToLogin = ({ onSwipeSuccess, isLoading }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(0);
@@ -203,15 +195,12 @@ export default function Register() {
   const [showPass, setShowPass] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   
-  // Google Auth States
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
 
-  // Safely access auth state
   const authState = useSelector((s) => s.auth);
   const userInfo = authState?.userInfo || null;
 
-  // iOS Style Toast State
   const [toast, setToast] = useState({ open: false, message: '', type: 'success' });
 
   const showToast = (message, type = 'success') => {
@@ -223,35 +212,24 @@ export default function Register() {
     return '/dashboard';
   };
 
-  // --- STRICT REDIRECT LOGIC ---
   useEffect(() => {
     if (userInfo?.token && userInfo?.role) {
       navigate(getDashboardPath(userInfo.role), { replace: true });
     }
   }, [userInfo, navigate]);
 
-  // --- EMAIL.JS WELCOME EMAIL LOGIC ---
   const sendWelcomeEmail = async (userEmail, userName) => {
     try {
       const templateParams = {
         email: userEmail,
         name: userName || 'User',
       };
-
-      const response = await emailjs.send(
-        'service_oyq61no', 
-        'template_jkm48u1', 
-        templateParams, 
-        'wu6wPVpFFpcdRqWHo'
-      );
-      
-      console.log(`[SYSTEM] Welcome Email sent! Status: ${response.status}, Text: ${response.text}`);
+      await emailjs.send('service_oyq61no', 'template_jkm48u1', templateParams, 'wu6wPVpFFpcdRqWHo');
     } catch (error) {
       console.error("Failed to send welcome email via EmailJS.", error);
     }
   };
 
-  // --- FIREBASE EMAIL/PASSWORD REGISTRATION + BACKEND SYNC ---
   const formik = useFormik({
     initialValues: {
       name: '',
@@ -264,36 +242,19 @@ export default function Register() {
     onSubmit: async (values) => {
       setIsLoading(true);
       try {
-        // 1. Create user in Firebase
         const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
         const user = userCredential.user;
-
-        // 2. Update Firebase Profile
         await updateProfile(user, { displayName: values.name });
 
-        // 3. Get secure JWT token for backend authorization
-        const token = await user.getIdToken();
-
-        // 4. Sync with custom Backend via unified Axios Instance
-        let backendToken = null;
-        try {
-          const res = await axiosInstance.post('/api/users/register', {
-            name: values.name,
-            email: values.email,
-            password: values.password,
-            role: values.role,
-            token: token // Attach Firebase token if backend requires validation
-          });
-          backendToken = res.data.token; 
-          
-          // Save tokens instantly
-          localStorage.setItem('token', backendToken || token);
-        } catch (backendErr) {
-          console.warn("Backend sync warning:", backendErr);
-          localStorage.setItem('token', token);
-        }
-
-        // 5. Send Welcome Email 
+        const res = await axiosInstance.post('/api/users/register', {
+          name: values.name,
+          email: values.email,
+          password: values.password,
+          role: values.role
+        });
+        
+        const backendToken = res.data.token; 
+        
         await sendWelcomeEmail(user.email, values.name);
 
         const userPayload = {
@@ -301,29 +262,25 @@ export default function Register() {
           email: user.email, 
           name: values.name,
           role: values.role,
-          token: backendToken || token
+          token: backendToken 
         };
 
-        // 6. SYNCHRONOUSLY SAVE TO LOCAL STORAGE
+        localStorage.setItem('token', backendToken);
         localStorage.setItem('userInfo', JSON.stringify(userPayload));
-
-        // 7. Update Redux
         dispatch(setCredentials(userPayload));
 
         showToast(`Welcome ${values.role === 'teacher' ? 'Teacher' : 'Student'}! 🎉`, 'success');
-        
-        // 8. Navigate Instantly
         navigate(getDashboardPath(values.role), { replace: true });
         
       } catch (err) {
-        const errMsg = err.code ? err.code.replace('auth/', '').replace(/-/g, ' ') : 'Registration failed';
+        const errMsg = err?.response?.data?.message || err.code?.replace('auth/', '').replace(/-/g, ' ') || 'Registration failed';
         showToast(errMsg, 'error');
+      } finally {
         setIsLoading(false);
       }
     },
   });
 
-  // --- GOOGLE SWIPE LOGIC (OPENS MODAL) ---
   const handleGoogleSwipeInitiate = () => {
     setIsGoogleLoading(true);
     setRoleDialogOpen(true); 
@@ -334,67 +291,52 @@ export default function Register() {
     setIsGoogleLoading(false); 
   };
 
-  // --- EXECUTE GOOGLE LOGIN AFTER ROLE SELECTION ---
   const executeGoogleLogin = async (selectedRole) => {
     setRoleDialogOpen(false); 
 
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
-      const token = await user.getIdToken();
-
       const details = getAdditionalUserInfo(result);
       
       if (details && details.isNewUser) {
         await sendWelcomeEmail(user.email, user.displayName);
       }
 
-      let backendToken = null;
-      try {
-        const res = await axiosInstance.post('/api/users/register', {
-          name: user.displayName,
-          email: user.email,
-          password: user.uid, 
-          role: selectedRole,
-          token: token
-        });
-        backendToken = res.data.token;
-        localStorage.setItem('token', backendToken || token);
-      } catch (backendErr) {
-        console.warn("Backend sync warning:", backendErr);
-        localStorage.setItem('token', token);
-      }
+      // 🔥 FIXED: Google accounts now hit the unified backend route
+      const res = await axiosInstance.post('/api/users/google', {
+        name: user.displayName,
+        email: user.email,
+        uid: user.uid, 
+        role: selectedRole
+      });
+      
+      const backendToken = res.data.token;
 
       const userPayload = {
         uid: user.uid, 
         email: user.email, 
         name: user.displayName,
         avatar: user.photoURL,
-        role: selectedRole, 
-        token: backendToken || token
+        role: res.data.role, 
+        token: backendToken
       };
 
-      // SYNCHRONOUSLY SAVE TO LOCAL STORAGE
+      localStorage.setItem('token', backendToken);
       localStorage.setItem('userInfo', JSON.stringify(userPayload));
-
-      // Update Redux
       dispatch(setCredentials(userPayload));
 
-      showToast(`Logged in as ${selectedRole === 'teacher' ? 'Teacher' : 'Student'}!`, 'success');
-      
-      // Navigate Instantly
-      navigate(getDashboardPath(selectedRole), { replace: true });
+      showToast(`Logged in successfully!`, 'success');
+      navigate(getDashboardPath(res.data.role), { replace: true });
       
     } catch (error) {
-      const errMsg = error.code === 'auth/popup-closed-by-user' 
-        ? 'Sign-in cancelled' 
-        : 'Google Sign-In failed. Please try again.';
+      const errMsg = error.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled' : 'Google Sign-In failed.';
       showToast(errMsg, 'error');
-      setIsGoogleLoading(false); 
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
-  /* ================== ORBIT COMPONENT ================== */
   const OrbitRing = ({ size, duration, icons }) => (
     <Box
       sx={{
@@ -431,7 +373,6 @@ export default function Register() {
 
   return (
     <PageContainer title="Register" description="Create an account on Procto.ai">
-      
       <Snackbar
         open={toast.open}
         autoHideDuration={4000}
