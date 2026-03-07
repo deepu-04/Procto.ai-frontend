@@ -8,7 +8,7 @@ import Router from './routes/Router';
 
 // Redux Provider
 import { Provider } from 'react-redux';
-import { store } from './store'; // ✅ ONLY named import
+import { store } from './store'; 
 
 // Toastify
 import { ToastContainer } from 'react-toastify';
