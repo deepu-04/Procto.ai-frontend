@@ -240,62 +240,108 @@ const ExamForm = ({ formik, isDark: propIsDark }) => {
   const back = () => setActiveStep((s) => s - 1);
 
   /* ================= SUBMISSION ================= */
-  const handleFinalSubmit = async (e) => {
-    e.preventDefault();
+ const handleFinalSubmit = async (e) => {
+  e.preventDefault();
 
-    try {
-      const examPayload = {
-        examName: values.examName.trim(),
-        totalQuestions: questions.length,
-        duration: Number(values.duration),
-        liveDate: values.liveDate,
-        deadDate: values.deadDate,
-        bannerImage: values.bannerImage || '',
-        targetAudience: audienceType,
-        targetEmails: audienceType === 'specific' ? targetEmails : [],
+  try {
+
+    /* ================= CREATE EXAM PAYLOAD ================= */
+
+    const examPayload = {
+      examName: values.examName.trim(),
+      totalQuestions: questions.length,
+      duration: Number(values.duration),
+      liveDate: values.liveDate,
+      deadDate: values.deadDate,
+      bannerImage: values.bannerImage || "",
+      targetAudience: audienceType,
+      targetEmails: audienceType === "specific" ? targetEmails : [],
+    };
+
+    console.log("Creating exam:", examPayload);
+
+    /* ================= CREATE EXAM ================= */
+
+    const examRes = await createExam(examPayload).unwrap();
+
+    console.log("Exam API response:", examRes);
+
+    /* ================= GET EXAM ID SAFELY ================= */
+
+    const examId =
+      examRes?.examId ||
+      examRes?.data?.examId ||
+      examRes?.exam?.examId;
+
+    if (!examId) {
+      toast.error("Exam ID not returned from server");
+      console.error("Invalid exam response:", examRes);
+      return;
+    }
+
+    /* ================= CREATE QUESTIONS ================= */
+
+    for (const q of questions) {
+
+      const isCoding = q.section === "coding";
+
+      const questionPayload = {
+        examId,
+        section: q.section,
+        question: q.questionText,
+        description: q.description || "",
+        image: q.image || "",
+        testCases: isCoding ? q.testCases : [],
+        options: !isCoding ? q.options : [],
+        correctAnswer: !isCoding ? q.correctOptionIndex : null,
       };
 
-      const examRes = await createExam(examPayload).unwrap();
-      const examId = examRes.exam.examId;
+      console.log("Creating question:", questionPayload);
 
-      for (const q of questions) {
-        const isCoding = q.section === 'coding';
-
-        await createQuestion({
-          examId,
-          section: q.section,
-          question: q.questionText,
-          description: q.description || '',
-          image: q.image || '',
-          testCases: isCoding ? q.testCases : [],
-          options: !isCoding ? q.options : [],
-          correctAnswer: !isCoding ? q.correctOptionIndex : null,
-        }).unwrap();
-      }
-
-      toast.success(
-        `🎉 Exam deployed! Links sent to ${audienceType === 'all' ? 'all students' : `${targetEmails.length} students`}.`,
-      );
-
-      setActiveStep(0);
-      setTargetEmails([]);
-      setQuestions([
-        {
-          id: Date.now(),
-          section: 'coding',
-          questionText: '',
-          description: '',
-          image: '',
-          testCases: [{ input: '', output: '', isHidden: false }],
-          options: ['', '', '', ''],
-          correctOptionIndex: 0,
-        },
-      ]);
-    } catch (err) {
-      console.error(err);
-      toast.error(err?.data?.message || 'Failed to create exam');
+      await createQuestion(questionPayload).unwrap();
     }
-  };
+
+    /* ================= SUCCESS ================= */
+
+    toast.success(
+      `🎉 Exam deployed successfully! ${
+        audienceType === "all"
+          ? "Visible to all students."
+          : `Invitations sent to ${targetEmails.length} students.`
+      }`
+    );
+
+    /* ================= RESET FORM ================= */
+
+    setActiveStep(0);
+    setTargetEmails([]);
+
+    setQuestions([
+      {
+        id: Date.now(),
+        section: "coding",
+        questionText: "",
+        description: "",
+        image: "",
+        testCases: [{ input: "", output: "", isHidden: false }],
+        options: ["", "", "", ""],
+        correctOptionIndex: 0,
+      },
+    ]);
+
+  } catch (err) {
+
+    console.error("Exam creation error:", err);
+
+    const errorMessage =
+      err?.data?.message ||
+      err?.response?.data?.message ||
+      err?.message ||
+      "Failed to create exam";
+
+    toast.error(errorMessage);
+  }
+};
 
   /* ================= COMMON STYLES ================= */
   const purpleButtonStyle = {

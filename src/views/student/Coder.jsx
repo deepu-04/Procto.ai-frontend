@@ -196,12 +196,12 @@ export default function Coder() {
 
   /* ================= PROCTORING LOGIC ================= */
   useEffect(() => {
-    if (riskScore >= 100 && !hasAutoSubmittedRef.current) {
-      hasAutoSubmittedRef.current = true;
-      toast.error('System Integrity critical. Auto-submitting exam.');
-      handleTestSubmission();
-    }
-  }, [riskScore , handleTestSubmission]);
+  if (riskScore >= 100 && !hasAutoSubmittedRef.current) {
+    hasAutoSubmittedRef.current = true;
+    toast.error("System Integrity critical. Auto-submitting exam.");
+    handleTestSubmission();
+  }
+}, [riskScore]);
 
   const getTrustColor = () => {
     if (trustScore > 50) return '#22C55E';
@@ -626,10 +626,7 @@ export default function Coder() {
 
   const handleSubmitSolution = () => {
 
-  if (!currentQ?._id) {
-    toast.error("Question not loaded properly");
-    return;
-  }
+  const currentQ = questions[currentQuestionIdx] || {};
 
   const submission = {
     questionId: currentQ._id,
@@ -660,35 +657,32 @@ export default function Coder() {
 
   toast.success("Solution submitted successfully!");
 };
-
-  const handleTestSubmission = async () => {
+ 
+///////////////// test solution///////////
+  
+  const handleTestSubmission = useCallback(async () => {
 
   if (isSubmitting) return;
 
   setIsSubmitting(true);
-
   hasAutoSubmittedRef.current = true;
 
   try {
 
     const token = localStorage.getItem("token");
 
-    // ================= FORMAT MCQ ANSWERS =================
     const formattedAnswers = {};
 
     Object.keys(answers).forEach((idx) => {
-
       const questionId = questions[idx]?._id;
 
       if (questionId) {
         formattedAnswers[questionId] = answers[idx];
       }
-
     });
 
-    // ================= SUBMIT RESULT =================
     await axiosInstance.post(
-      "/api/results/submit",
+      "/api/results/submit",   // ✅ FIXED ROUTE
       {
         examId,
         answers: formattedAnswers,
@@ -701,7 +695,6 @@ export default function Coder() {
       }
     );
 
-    // ================= SAVE CHEATING LOG =================
     const payload = {
       ...cheatingLogRef.current,
       username: userInfo?.name,
@@ -714,27 +707,35 @@ export default function Coder() {
     toast.success("Exam submitted successfully");
 
     if (document.fullscreenElement) {
-      await document.exitFullscreen().catch((err) =>
-        console.error("Fullscreen exit error:", err)
-      );
+      await document.exitFullscreen().catch(() => {});
     }
 
     navigate("/success");
 
   } catch (error) {
 
-    console.error(error);
+    console.error("Exam submission error:", error);
 
     toast.error(
       error?.response?.data?.message || "Submission failed. Check connection."
     );
 
     setIsSubmitting(false);
-
     hasAutoSubmittedRef.current = false;
 
   }
-};
+
+}, [
+  answers,
+  questions,
+  codingSubmissions,
+  examId,
+  userInfo,
+  navigate,
+  saveCheatingLogMutation,
+  isSubmitting
+]);
+
 
 
 
