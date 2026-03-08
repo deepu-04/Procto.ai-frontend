@@ -879,14 +879,14 @@ const ResultPage = () => {
                                   </Box>
                                 </TableCell>
                                 <TableCell sx={{ color: isDark ? '#F8FAFC' : 'inherit' }}>
-                                  {result.examId?.examName || 'N/A'}
-                                </TableCell>
+  {exams.find((e) => e.examId === result.examId)?.examName || "N/A"}
+</TableCell>
                                 <TableCell>
                                   <Typography variant="body2" fontWeight="bold" color={isDark ? '#60A5FA' : 'primary.main'}>
                                     {result.percentage?.toFixed(2)}%
                                   </Typography>
                                   <Typography variant="caption" color={isDark ? '#94A3B8' : 'textSecondary'}>
-                                    {result.totalScore !== undefined ? result.totalScore : '?'} / {result.examId?.totalMarks || '?'} pts
+                                    {result.totalScore ?? 0} pts
                                   </Typography>
                                 </TableCell>
                                 <TableCell align="center">
@@ -905,7 +905,7 @@ const ResultPage = () => {
                                   <TableCell>
                                     <Chip
                                       icon={result.showToStudent ? <IconEye size={16} /> : <IconEyeOff size={16} />}
-                                      label={result.showToStudent ? 'Visible' : 'True'}
+                                      label={result.showToStudent ? 'Visible' : 'Hidden'}
                                       size="small"
                                       onClick={() => handleToggleVisibility(result._id)}
                                       sx={{
