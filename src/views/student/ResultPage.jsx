@@ -253,8 +253,8 @@ const ResultPage = () => {
       );
     }
     if (selectedTab === 1) {
-      filtered = filtered.filter((r) => r.mcqScore !== undefined || r.percentage !== undefined);
-    }
+  filtered = filtered.filter((r) => r.totalMarks !== undefined);
+}
     if (selectedTab === 2) {
       filtered = filtered.filter((r) => r.codingSubmissions?.length > 0);
     }
@@ -905,7 +905,7 @@ const ResultPage = () => {
                                   <TableCell>
                                     <Chip
                                       icon={result.showToStudent ? <IconEye size={16} /> : <IconEyeOff size={16} />}
-                                      label={result.showToStudent ? 'Visible' : 'Hidden'}
+                                      label={result.showToStudent ? 'Visible' : 'True'}
                                       size="small"
                                       onClick={() => handleToggleVisibility(result._id)}
                                       sx={{

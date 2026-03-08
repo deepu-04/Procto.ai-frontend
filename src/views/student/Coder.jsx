@@ -186,13 +186,29 @@ export default function Coder() {
   }, [userExamdata, examId]);
 
   useEffect(() => {
-    if (questionsData) {
-      const extractedQuestions = Array.isArray(questionsData) 
-        ? questionsData 
-        : (questionsData.questions || questionsData.data || []);
-      setQuestions(extractedQuestions);
-    }
-  }, [questionsData]);
+  if (!questionsData) return;
+
+  let extractedQuestions = [];
+
+  if (Array.isArray(questionsData)) {
+    extractedQuestions = questionsData;
+  } 
+  else if (Array.isArray(questionsData.questions)) {
+    extractedQuestions = questionsData.questions;
+  } 
+  else if (Array.isArray(questionsData.data)) {
+    extractedQuestions = questionsData.data;
+  } 
+  else if (Array.isArray(questionsData.data?.questions)) {
+    extractedQuestions = questionsData.data.questions;
+  } 
+  else if (Array.isArray(questionsData.results)) {
+    extractedQuestions = questionsData.results;
+  }
+
+  setQuestions(extractedQuestions);
+
+}, [questionsData]);
 
   /* ================= PROCTORING LOGIC ================= */
   useEffect(() => {
