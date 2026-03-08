@@ -74,22 +74,26 @@ const CreateExamPage = () => {
 
         /* ================= DATE FIX ================= */
 
-        const liveDateObj = new Date(values.liveDate);
-        liveDateObj.setMinutes(liveDateObj.getMinutes() - 2);
+       const now = new Date();
 
-        const deadDateObj = new Date(values.deadDate);
+let liveDateObj = new Date(values.liveDate);
+const deadDateObj = new Date(values.deadDate);
+
+// If teacher selects current time or past → force live
+if (liveDateObj <= now) {
+  liveDateObj = now;
+}
 
         /* ================= PAYLOAD ================= */
 
-        const examPayload = {
-          examName: values.examName,            // IMPORTANT: match backend schema
-          totalQuestions: Number(values.totalQuestions),
-          duration: Number(values.duration),
-          liveDate: liveDateObj.toISOString(),
-          deadDate: deadDateObj.toISOString(),
-          bannerImage: values.bannerImage || "",
-        };
-
+  const examPayload = {
+  examName: values.examName,
+  totalQuestions: Number(values.totalQuestions),
+  duration: Number(values.duration),
+  liveDate: liveDateObj.toISOString(),
+  deadDate: deadDateObj.toISOString(),
+  bannerImage: values.bannerImage || "",
+};
         console.log("Exam payload:", examPayload);
 
         /* ================= CREATE EXAM ================= */

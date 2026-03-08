@@ -281,20 +281,24 @@ const ExamForm = ({ formik, isDark: propIsDark }) => {
 
     /* ================= CREATE QUESTIONS ================= */
 
-    for (const q of questions) {
+   for (const q of questions) {
 
-      const isCoding = q.section === "coding";
+  const isCoding = q.section === "coding";
 
-      const questionPayload = {
-        examId,
-        section: q.section,
-        question: q.questionText,
-        description: q.description || "",
-        image: q.image || "",
-        testCases: isCoding ? q.testCases : [],
-        options: !isCoding ? q.options : [],
-        correctAnswer: !isCoding ? q.correctOptionIndex : null,
-      };
+  const cleanedTestCases = q.testCases.filter(
+    (tc) => tc.input && tc.output
+  );
+
+  const questionPayload = {
+    examId,
+    section: q.section,
+    question: q.questionText,
+    description: q.description || "",
+    image: q.image || "",
+    testCases: isCoding ? cleanedTestCases : [],
+    options: !isCoding ? q.options.map(o => o.trim()) : [],
+    correctAnswer: !isCoding ? q.correctOptionIndex : null,
+  };
 
       console.log("Creating question:", questionPayload);
 

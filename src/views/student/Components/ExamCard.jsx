@@ -87,15 +87,19 @@ const statusConfig = {
   UPCOMING: { color: 'warning', icon: <LockClock fontSize="small" />, label: 'Upcoming' },
   LIVE: { color: 'success', icon: <CheckCircle fontSize="small" />, label: 'Live Now' },
   EXPIRED: { color: 'error', icon: <EventBusy fontSize="small" />, label: 'Expired' },
-  ATTEMPTED: { color: 'info', icon: <CheckCircle fontSize="small" />, label: 'Attempted' },
+  ATTEMPTED: { color: 'info', icon: <CheckCircle fontSize="small" />, label: 'Completed' },
 };
 
 const getExamStatus = (liveDate, deadDate, isAttempted) => {
   const now = new Date();
-  if (isAttempted) return 'ATTEMPTED';
-  if (now > new Date(deadDate)) return 'EXPIRED';
-  if (now < new Date(liveDate)) return 'UPCOMING';
-  return 'LIVE';
+  const start = new Date(liveDate);
+  const end = new Date(deadDate);
+
+  if (isAttempted) return "ATTEMPTED";
+  if (now > end) return "EXPIRED";
+  if (now >= start) return "LIVE";
+
+  return "UPCOMING";
 };
 
 const formatDate = (dateString) => {
@@ -138,12 +142,15 @@ export default function ExamCard({ exam }) {
   }, []);
 
   const isTeacher = userInfo?.role === 'teacher';
-  const isAttempted = attemptedBy.includes(userInfo?._id);
+  const isAttempted = attemptedBy?.some(
+  (id) => id === userInfo?._id
+);
   const status = getExamStatus(liveDate, deadDate, isAttempted);
 
   // Disabled if expired or attempted (unless teacher)
   const disabled =
-    (status === 'EXPIRED' || status === 'ATTEMPTED' || status === 'UPCOMING') && !isTeacher;
+  !isTeacher &&
+  (status === "EXPIRED" || status === "ATTEMPTED" || status === "UPCOMING");
 
   /* ================= THEME PICK ================= */
   const hashString = (str) => {
@@ -163,25 +170,29 @@ export default function ExamCard({ exam }) {
   const activeIcon = isDark ? theme.darkIcon : theme.icon;
 
   /* ================= HANDLERS ================= */
-  const handleCardClick = () => {
-    if (isTeacher) {
-      toast.info('Teachers cannot attempt exams, only manage them.');
-      return;
-    }
-    if (isAttempted) {
-      toast.info('You have already completed this exam.');
-      return;
-    }
-    if (status === 'EXPIRED') {
-      toast.error('This exam has expired and is no longer available.');
-      return;
-    }
-    if (status === 'UPCOMING') {
-      toast.warning('This exam has not started yet.');
-      return;
-    }
-    navigate(`/exam/${examId}`);
-  };
+ const handleCardClick = () => {
+  if (isTeacher) {
+    toast.info("Teachers cannot attempt exams.");
+    return;
+  }
+
+  if (status === "ATTEMPTED") {
+    toast.info("You already completed this exam.");
+    return;
+  }
+
+  if (status === "EXPIRED") {
+    toast.error("This exam has expired.");
+    return;
+  }
+
+  if (status === "UPCOMING") {
+    toast.warning("Exam not started yet.");
+    return;
+  }
+
+  navigate(`/exam/${examId}`);
+};
 
   return (
     <MotionCard
