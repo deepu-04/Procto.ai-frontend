@@ -677,7 +677,6 @@ export default function Coder() {
 };
  
 ///////////////// test solution///////////
-  
   const handleTestSubmission = useCallback(async () => {
 
   if (isSubmitting) return;
@@ -689,24 +688,29 @@ export default function Coder() {
 
     const token = localStorage.getItem("token");
 
-   const formattedAnswers = {};
+    const formattedAnswers = {};
 
-Object.keys(answers).forEach((idx) => {
+    Object.keys(answers || {}).forEach((idx) => {
 
-  const questionId = questions[idx]?._id;
+      const questionId = questions[idx]?._id;
 
-  if (!questionId) return;
+      if (!questionId) return;
 
-  formattedAnswers[questionId] = answers[idx];
-});
+      formattedAnswers[questionId] = answers[idx];
+
+    });
+
+    const payload = {
+      examId,
+      answers: formattedAnswers,
+      codingSubmissions: codingSubmissions || [],
+    };
+
+    console.log("Submitting exam payload:", payload);
 
     await axiosInstance.post(
-      "/api/results/submit",   // ✅ FIXED ROUTE
-      {
-        examId,
-        answers: formattedAnswers,
-        codingSubmissions: codingSubmissions || [],
-      },
+      "/api/results/submit",
+      payload,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -714,14 +718,14 @@ Object.keys(answers).forEach((idx) => {
       }
     );
 
-    const payload = {
+    const cheatingPayload = {
       ...cheatingLogRef.current,
       username: userInfo?.name,
       email: userInfo?.email,
       examId,
     };
 
-    await saveCheatingLogMutation(payload).unwrap();
+    await saveCheatingLogMutation(cheatingPayload).unwrap();
 
     toast.success("Exam submitted successfully");
 
@@ -733,7 +737,7 @@ Object.keys(answers).forEach((idx) => {
 
   } catch (error) {
 
-    console.error("Exam submission error:", error);
+    console.error("Exam submission error:", error?.response?.data || error);
 
     toast.error(
       error?.response?.data?.message || "Submission failed. Check connection."
