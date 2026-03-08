@@ -651,9 +651,11 @@ export default function Coder() {
 
   // mark coding question attempted
   setAnswers((prev) => ({
-    ...prev,
-    [currentQuestionIdx]: true
-  }));
+  ...prev,
+  [currentQuestionIdx]: {
+    attempted: true
+  }
+}));
 
   toast.success("Solution submitted successfully!");
 };
@@ -671,15 +673,16 @@ export default function Coder() {
 
     const token = localStorage.getItem("token");
 
-    const formattedAnswers = {};
+   const formattedAnswers = {};
 
-    Object.keys(answers).forEach((idx) => {
-      const questionId = questions[idx]?._id;
+Object.keys(answers).forEach((idx) => {
 
-      if (questionId) {
-        formattedAnswers[questionId] = answers[idx];
-      }
-    });
+  const questionId = questions[idx]?._id;
+
+  if (!questionId) return;
+
+  formattedAnswers[questionId] = answers[idx];
+});
 
     await axiosInstance.post(
       "/api/results/submit",   // ✅ FIXED ROUTE
