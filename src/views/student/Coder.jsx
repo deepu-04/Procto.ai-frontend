@@ -688,46 +688,77 @@ export default function Coder() {
 
     const token = localStorage.getItem("token");
 
+    if (!examId) {
+      toast.error("Exam ID missing");
+      setIsSubmitting(false);
+      return;
+    }
+
+    /* ================= FORMAT ANSWERS ================= */
+
     const formattedAnswers = {};
 
     Object.keys(answers || {}).forEach((idx) => {
 
-      const questionId = questions[idx]?._id;
+      const question = questions[idx];
 
-      if (!questionId) return;
+      if (!question || !question._id) return;
 
-      formattedAnswers[questionId] = answers[idx];
+      const answerValue = answers[idx];
+
+      if (answerValue !== undefined && answerValue !== null) {
+        formattedAnswers[question._id] = answerValue;
+      }
 
     });
 
+    /* ================= FORMAT CODING ================= */
+
+    const safeCodingSubmissions = (codingSubmissions || []).map((sub) => ({
+      questionId: sub?.questionId || null,
+      code: sub?.code || "",
+      language: sub?.language || "javascript",
+      marks: sub?.marks || 0
+    }));
+
+    /* ================= FINAL PAYLOAD ================= */
+
     const payload = {
-      examId,
+      examId: String(examId),
       answers: formattedAnswers,
-      codingSubmissions: codingSubmissions || [],
+      codingSubmissions: safeCodingSubmissions
     };
 
-    console.log("Submitting exam payload:", payload);
+    console.log("Submitting Exam:", payload);
 
-    await axiosInstance.post(
+    /* ================= SUBMIT EXAM ================= */
+
+    const res = await axiosInstance.post(
       "/api/results/submit",
       payload,
       {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+          Authorization: `Bearer ${token}`
+        }
       }
     );
+
+    console.log("Submission response:", res.data);
+
+    /* ================= SAVE CHEATING LOG ================= */
 
     const cheatingPayload = {
       ...cheatingLogRef.current,
       username: userInfo?.name,
       email: userInfo?.email,
-      examId,
+      examId
     };
 
     await saveCheatingLogMutation(cheatingPayload).unwrap();
 
     toast.success("Exam submitted successfully");
+
+    /* ================= EXIT FULLSCREEN ================= */
 
     if (document.fullscreenElement) {
       await document.exitFullscreen().catch(() => {});
@@ -740,7 +771,7 @@ export default function Coder() {
     console.error("Exam submission error:", error?.response?.data || error);
 
     toast.error(
-      error?.response?.data?.message || "Submission failed. Check connection."
+      error?.response?.data?.message || "Exam submission failed"
     );
 
     setIsSubmitting(false);
@@ -758,8 +789,6 @@ export default function Coder() {
   saveCheatingLogMutation,
   isSubmitting
 ]);
-
-
 
 
 
