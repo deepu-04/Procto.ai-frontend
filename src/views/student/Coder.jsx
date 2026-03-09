@@ -116,7 +116,6 @@ export default function Coder() {
   // Editor States
   const [language, setLanguage] = useState('javascript');
   const [code, setCode] = useState(LANGUAGE_TEMPLATES['javascript']);
-  const [savedCodes, setSavedCodes] = useState({}); // Stores code per question and language
   const [output, setOutput] = useState('');
   const [isError, setIsError] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -127,6 +126,12 @@ export default function Coder() {
   const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
   const [revisitQuestions, setRevisitQuestions] = useState(new Set());
   const [answers, setAnswers] = useState({}); // Tracks attempted status 
+
+  // FIX: Load saved codes from local storage to prevent data loss on refresh
+  const [savedCodes, setSavedCodes] = useState(() => {
+    const saved = localStorage.getItem(`coding_state_${examId}`);
+    return saved ? JSON.parse(saved) : {};
+  });
 
   // Security States
   const [isSuspiciousEnv, setIsSuspiciousEnv] = useState(false);
@@ -145,6 +150,11 @@ export default function Coder() {
   const [sessionEvents, setSessionEvents] = useState([]);
 
   /* ================= DATA INITIALIZATION ================= */
+  // Sync saved codes to local storage
+  useEffect(() => {
+    localStorage.setItem(`coding_state_${examId}`, JSON.stringify(savedCodes));
+  }, [savedCodes, examId]);
+
   useEffect(() => {
     cheatingLogRef.current = cheatingLog || {};
   }, [cheatingLog]);
@@ -156,7 +166,7 @@ export default function Coder() {
     }
   }, [userExamdata, examId]);
 
-  // ================= CRITICAL FIX: BULLETPROOF CODING FILTER =================
+  // ================= CODING FILTER =================
   useEffect(() => {
     if (!questionsData) return;
 
@@ -167,7 +177,6 @@ export default function Coder() {
     else if (Array.isArray(questionsData.data?.questions)) extractedQuestions = questionsData.data.questions;
     else if (Array.isArray(questionsData.results)) extractedQuestions = questionsData.results;
 
-    // Filter logic: Captures explicit coding types OR questions that lack MCQ options.
     const codingOnly = extractedQuestions.filter(q => {
       const isCodingSection = q.section === 'coding' || q.type === 'coding';
       const hasTestCases = Array.isArray(q.testCases) && q.testCases.length > 0;
@@ -280,7 +289,6 @@ export default function Coder() {
   // --- HARDWARE LEVEL MEDIA LOCKS (Keyboard / OS Mute Detection) ---
   const setupMediaTrackListeners = useCallback((stream, type) => {
     stream.getTracks().forEach((track) => {
-      // Listener for physical/OS mute buttons
       track.onmute = () => {
         setHardwareIssue({
           missing: true,
@@ -290,12 +298,10 @@ export default function Coder() {
         registerViolation('HARDWARE_MUTED', `${type} muted at OS level`, 'critical', 30);
       };
 
-      // Listener for when track becomes active again
       track.onunmute = () => {
         setHardwareIssue({ missing: false, type: '', message: '' });
       };
 
-      // Listener for complete physical disconnection (unplugging)
       track.onended = () => {
         setHardwareIssue({
           missing: true,
@@ -307,8 +313,18 @@ export default function Coder() {
     });
   }, [registerViolation]);
 
+  // FIX 1: Prevent false positives in hardware monitoring
   const monitorHardwareDevices = useCallback(async () => {
     try {
+      // Check if streams are already live to prevent flickering false positive
+      const isAudioActive = audioStreamRef.current?.getTracks().some(t => t.readyState === 'live' && !t.muted);
+      const isVideoActive = videoStreamRef.current?.getTracks().some(t => t.readyState === 'live' && !t.muted);
+
+      if (isAudioActive && isVideoActive) {
+        setHardwareIssue({ missing: false, type: '', message: '' });
+        return;
+      }
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       const hasCam = devices.some(device => device.kind === 'videoinput');
       const hasMic = devices.some(device => device.kind === 'audioinput');
@@ -322,7 +338,6 @@ export default function Coder() {
         });
         registerViolation('HARDWARE_DISCONNECT', 'Media devices disconnected', 'critical', 40);
       } else {
-        // Verify active stream tracking
         const isAudioDead = audioStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
         const isVideoDead = videoStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
 
@@ -718,46 +733,46 @@ export default function Coder() {
     toast.success("Solution saved locally! Remember to click Finish Exam when done.");
   };
  
-  /* ================= SUBMISSION LOGIC ================= */
+  /* ================= SUBMISSION LOGIC (FIXED) ================= */
   const handleTestSubmission = useCallback(async () => {
     if (isSubmitting) return;
+
+    if (!examId) {
+      toast.error("Error: Exam ID not found in URL. Please refresh.");
+      return;
+    }
 
     setIsSubmitting(true);
     hasAutoSubmittedRef.current = true;
 
     try {
       const token = localStorage.getItem("token");
-      if (!examId) {
-        toast.error("Exam ID missing");
-        setIsSubmitting(false);
-        return;
-      }
 
-      /* === FIX: MAP THE RETRIEVED MCQ ANSWERS INTO A PROPER OBJECT === */
-      let formattedMcqAnswers = {};
+      /* === CONVERT MCQ ANSWERS TO ARRAY === */
+      let formattedMcqAnswers = [];
       const savedMcqAnswersString = localStorage.getItem(`mcq_answers_${examId}`);
-      
       if (savedMcqAnswersString) {
         try {
           const parsed = JSON.parse(savedMcqAnswersString);
           if (Array.isArray(parsed)) {
-            parsed.forEach(ans => {
-              if (ans.questionId) {
-                formattedMcqAnswers[ans.questionId] = String(ans.selectedOption);
-              }
-            });
+            formattedMcqAnswers = parsed.map(ans => ({
+              questionId: ans.questionId,
+              selectedOption: String(ans.selectedOption)
+            }));
           } else {
-            formattedMcqAnswers = parsed;
+            formattedMcqAnswers = Object.entries(parsed).map(([qId, option]) => ({ 
+              questionId: qId, 
+              selectedOption: String(option) 
+            }));
           }
         } catch (e) {
           console.error("Error parsing local MCQ answers", e);
         }
       }
 
-      /* ================= FORMAT CODING SUBMISSIONS ================= */
+      /* === FORMAT CODING SUBMISSIONS === */
       const finalCodingSubmissions = questions.map((q, idx) => {
-        if (!q || !q._id) return null; // Safety check
-
+        if (!q || !q._id) return null;
         let qLang = language;
         let qCode = '';
 
@@ -769,25 +784,18 @@ export default function Coder() {
           qCode = savedCodes[idx][qLang] || '';
         }
 
-        // Exclude untouched templates to prevent false data
-        if (!qCode || qCode.trim() === '' || qCode === LANGUAGE_TEMPLATES[qLang]) {
-            return null;
-        }
+        if (!qCode || qCode.trim() === '' || qCode === LANGUAGE_TEMPLATES[qLang]) return null;
 
-        return {
-          questionId: q._id,
-          code: qCode,
-          language: qLang,
-          marks: 0
-        };
-      }).filter(Boolean); // Removes any null entries
+        return { questionId: q._id, code: qCode, language: qLang, marks: 0 };
+      }).filter(Boolean);
 
       const payload = {
-        examId: String(examId),
-        answers: formattedMcqAnswers, 
+        examId: String(examId).trim(), // Ensure no whitespace
+        answers: formattedMcqAnswers,
         codingSubmissions: finalCodingSubmissions
       };
 
+      // ACTUAL API CALL
       await axiosInstance.post(
         "/api/results/submit",
         payload,
@@ -798,7 +806,7 @@ export default function Coder() {
         ...cheatingLogRef.current,
         username: userInfo?.name,
         email: userInfo?.email,
-        examId
+        examId: String(examId)
       };
       
       try {
@@ -808,10 +816,11 @@ export default function Coder() {
       }
 
       toast.success("Exam submitted successfully");
-
-      // Clean up localStorage
+      
+      // Clean up storage
       localStorage.removeItem(`mcq_answers_${examId}`);
       localStorage.removeItem(`mcq_state_${examId}`);
+      localStorage.removeItem(`coding_state_${examId}`);
 
       if (document.fullscreenElement) {
         await document.exitFullscreen().catch(() => {});
@@ -819,8 +828,8 @@ export default function Coder() {
       navigate("/success");
 
     } catch (error) {
-      console.error("Exam submission error:", error?.response?.data || error);
-      toast.error(error?.response?.data?.message || "Exam submission failed");
+      console.error("Submission Error Details:", error.response?.data);
+      toast.error(error.response?.data?.message || "Submission failed");
       setIsSubmitting(false);
       hasAutoSubmittedRef.current = false;
     }

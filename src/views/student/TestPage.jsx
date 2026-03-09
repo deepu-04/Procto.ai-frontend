@@ -90,7 +90,7 @@ const TestPage = () => {
   const cheatingLogRef = useRef({});
   const hasAutoSubmittedRef = useRef(false);
 
-  const { cheatingLog, updateCheatingLog, resetCheatingLog } = useCheatingLog();
+  const { cheatingLog, updateCheatingLog } = useCheatingLog();
   const [saveCheatingLogMutation] = useSaveCheatingLogMutation();
   const { userInfo } = useSelector((state) => state.auth || {});
 
@@ -98,7 +98,6 @@ const TestPage = () => {
   const {
     data: questionsData,
     isLoading: isQuestionsLoading,
-    error: questionsError,
   } = useGetQuestionsQuery(examId);
   const { data: userExamdata, isLoading: isExamsLoading } = useGetExamsQuery();
 
@@ -148,7 +147,7 @@ const TestPage = () => {
 
   useEffect(() => {
     if (Array.isArray(userExamdata)) {
-      const exam = userExamdata.find((e) => e.examId === examId);
+      const exam = userExamdata.find((e) => e.examId === examId || e._id === examId);
       if (exam?.duration) {
         setExamDurationInSeconds(exam.duration * 60);
       }
@@ -164,6 +163,8 @@ const TestPage = () => {
       loadedQuestions = questionsData.questions;
     } else if (questionsData && Array.isArray(questionsData.data)) {
       loadedQuestions = questionsData.data;
+    } else if (questionsData && Array.isArray(questionsData.results)) {
+      loadedQuestions = questionsData.results;
     }
 
     const mcqOnly = loadedQuestions.filter((q) => {
@@ -306,6 +307,7 @@ const TestPage = () => {
     });
   }, [registerViolation]);
 
+  // FIX: Stable hardware validation to stop false positive "Mic Muted" issues
   const monitorHardwareDevices = useCallback(async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -321,18 +323,16 @@ const TestPage = () => {
         });
         registerViolation('HARDWARE_DISCONNECT', 'Media devices disconnected', 'critical', 40);
       } else {
-        // If devices exist physically, verify the streams are actually still alive
-        const isAudioDead = audioStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
-        const isVideoDead = videoStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
+        // Deep Check streams. Wait 1 tick for browser states to update properly.
+        const isAudioDead = audioStreamRef.current && audioStreamRef.current.getTracks().length > 0 && audioStreamRef.current.getTracks().every(t => t.readyState === 'ended');
+        const isVideoDead = videoStreamRef.current && videoStreamRef.current.getTracks().length > 0 && videoStreamRef.current.getTracks().every(t => t.readyState === 'ended');
 
         if (isAudioDead || isVideoDead) {
           setHardwareIssue({
             missing: true,
             type: isAudioDead ? 'audio' : 'video',
-            message: `Your ${isAudioDead ? 'Microphone' : 'Camera'} is currently muted or blocked by another application.`,
+            message: `Your ${isAudioDead ? 'Microphone' : 'Camera'} stream ended unexpectedly.`,
           });
-        } else {
-          setHardwareIssue({ missing: false, type: '', message: '' });
         }
       }
     } catch (err) {
@@ -342,7 +342,7 @@ const TestPage = () => {
 
   useEffect(() => {
     navigator.mediaDevices.addEventListener('devicechange', monitorHardwareDevices);
-    hardwareMonitorRef.current = setInterval(monitorHardwareDevices, 5000);
+    hardwareMonitorRef.current = setInterval(monitorHardwareDevices, 10000);
 
     return () => {
       navigator.mediaDevices.removeEventListener('devicechange', monitorHardwareDevices);
@@ -388,7 +388,7 @@ const TestPage = () => {
     return () => pc.close();
   }, [isFullscreen, registerViolation]);
 
-  // --- Realtime Public IP Monitor ---
+  // --- Realtime Public IP Monitor (VPN Check) ---
   const monitorPublicIP = async () => {
     try {
       const res = await fetch('https://api.ipify.org?format=json');
@@ -407,7 +407,7 @@ const TestPage = () => {
         );
       }
     } catch (err) {
-      console.log('IP Monitor skipped');
+      console.log('IP Monitor skipped due to adblocker/network issue');
     }
   };
 
@@ -569,30 +569,33 @@ const TestPage = () => {
     };
   }, [isFullscreen, registerViolation, setupMediaTrackListeners]);
 
+  // VPN AND PUBLIC IP REALTIME CHECKING
   const handleStartExam = async () => {
     try {
       if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
       setIsFullscreen(true);
       localStorage.setItem('examInProgress', examId);
 
+      // Verify VPN/Proxy instantly upon starting via external API logic
       await monitorPublicIP();
 
+      // Start Heartbeat for backend proxy checking
       heartbeatRef.current = setInterval(async () => {
         if (!navigator.onLine) return;
-        monitorPublicIP();
+        monitorPublicIP(); // Secondary IP poll
 
         try {
           const res = await axiosInstance.get('/network/check');
           const result = res.data;
           
-          if (result && result.ipChanged === true) {
+          if (result && (result.vpnDetected === true || result.ipChanged === true)) {
             setVpnDetected(true);
             registerViolation('VPN_DETECTED', 'Active VPN or network routing change detected', 'critical', 40);
           } else if (result && result.networkRisk?.risk >= 85) {
             registerViolation('NETWORK_RISK', 'Suspicious network routing', 'high', 25);
           }
         } catch (err) {
-            // Silently fail if endpoint is down
+            // Silently fail if endpoint is down to avoid crashing exam
         }
       }, 10000);
     } catch {
@@ -702,17 +705,18 @@ const TestPage = () => {
     setSectionSwitchModal(true);
   };
 
+  // --- THIS FUNCTION NOW ACTUALLY ROUTES TO CODING ---
   const confirmSectionSwitch = () => {
-    setSectionSwitchModal(false);
+    setSectionSwitchModal(false); 
     
     if (targetSection === 'submit') {
       handleTestSubmission();
     } else if (targetSection === 'coding') {
-      // SAVE THE MCQ ANSWERS TO LOCALSTORAGE BEFORE ROUTING
+      // 1. SAVE THE MCQ ANSWERS TO LOCALSTORAGE BEFORE ROUTING
       const userResponses = getFormattedResponses();
       localStorage.setItem(`mcq_answers_${examId}`, JSON.stringify(userResponses));
       
-      // Navigate to separate coder component
+      // 2. NAVIGATE TO THE CODING PAGE
       navigate(`/exam/${examId}/code`);
     }
   };
@@ -866,6 +870,20 @@ const TestPage = () => {
           <Button variant="contained" fullWidth sx={{ bgcolor: '#4F46E5', '&:hover': { bgcolor: '#4338CA' }, mb: 4, py: 1.5, borderRadius: 1.5 }} onClick={handleStartExam}>
             Enter Fullscreen
           </Button>
+        </Box>
+      </Modal>
+
+      <Modal open={sectionSwitchModal} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}>
+        <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+          <WarningRoundedIcon sx={{ fontSize: 60, color: '#FACC15', mb: 1 }} />
+          <Typography variant="h5" fontWeight={700} mb={2}>Proceed to Next Section?</Typography>
+          <Typography variant="body2" color="textSecondary" mb={4}>
+            Are you sure you want to {targetSection === 'coding' ? 'jump to the coding section' : 'submit your test'}? You cannot return here.
+          </Typography>
+          <Box display="flex" gap={2} justifyContent="center">
+            <Button variant="outlined" onClick={() => setSectionSwitchModal(false)} sx={{ px: 4, borderRadius: 1.5, color: 'text.secondary', borderColor: '#E2E8F0' }}>Cancel</Button>
+            <Button variant="contained" onClick={confirmSectionSwitch} sx={{ px: 4, borderRadius: 1.5, bgcolor: '#4F46E5' }}>Proceed</Button>
+          </Box>
         </Box>
       </Modal>
 
