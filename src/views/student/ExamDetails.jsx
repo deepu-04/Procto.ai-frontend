@@ -27,6 +27,8 @@ import {
   IconScanEye,
 } from '@tabler/icons-react';
 import MobileOffIcon from '@mui/icons-material/MobileOff';
+import VideocamOffIcon from '@mui/icons-material/VideocamOff';
+import MicOffIcon from '@mui/icons-material/MicOff';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { useSelector } from 'react-redux';
@@ -74,15 +76,7 @@ const SimulatedAudioVisualizer = () => {
   }, []);
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 0.8,
-        height: 24,
-        px: 1,
-      }}
-    >
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, height: 24, px: 1 }}>
       {levels.map((level, i) => (
         <Box
           key={i}
@@ -151,19 +145,13 @@ const ChecklistItem = ({ icon, title, subtitle, status, progress }) => {
             />
           </Box>
         ) : (
-          <Typography
-            variant="caption"
-            color={isFail ? '#EF4444' : 'textSecondary'}
-            fontWeight="500"
-          >
+          <Typography variant="caption" color={isFail ? '#EF4444' : 'textSecondary'} fontWeight="500">
             {subtitle}
           </Typography>
         )}
       </Box>
       <Box display="flex" alignItems="center">
-        {isRunning && (
-          <IconLoader2 style={{ animation: `${spin} 1s linear infinite`, color: '#007AFF' }} />
-        )}
+        {isRunning && <IconLoader2 style={{ animation: `${spin} 1s linear infinite`, color: '#007AFF' }} />}
         {isPass && <IconCircleCheckFilled color="#16A34A" size={28} />}
         {isFail && <IconAlertCircleFilled color="#EF4444" size={28} />}
       </Box>
@@ -178,12 +166,12 @@ export default function TestPage() {
   const { userInfo } = useSelector((state) => state.auth);
 
   const [startInput, setStartInput] = useState('');
-  const mediaStreamRef = useRef(null);
+  
+  // Independent stream refs for precise hardware tracking
+  const videoStreamRef = useRef(null);
+  const audioStreamRef = useRef(null);
 
-  // --- Theme Sync State ---
   const [isDark, setIsDark] = useState(false);
-
-  // --- Strict Mobile Restriction State ---
   const [isMobileRestricted, setIsMobileRestricted] = useState(false);
 
   const [checks, setChecks] = useState({
@@ -197,6 +185,7 @@ export default function TestPage() {
   const [scanProgress, setScanProgress] = useState(0);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [idleIndex, setIdleIndex] = useState(0);
+  const [hardwareIssue, setHardwareIssue] = useState({ missing: false, type: '', message: '' });
 
   const updateCheck = (key, status) => {
     setChecks((prev) => ({ ...prev, [key]: status }));
@@ -228,29 +217,17 @@ export default function TestPage() {
   useEffect(() => {
     const checkDevice = () => {
       const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-      
-      // Regex detects Mobile OS, iPhones, Androids, Tablets, and iPads
       const isTabletOrMobile = /(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(userAgent) || 
         /Mobile|iP(hone|od)|Android|BlackBerry|IEMobile|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(userAgent);
-      
-      // Fallback check: if the screen is too narrow (e.g., standard portrait modes)
       const isSmallScreen = window.innerWidth <= 800;
 
-      if (isTabletOrMobile || isSmallScreen) {
-        setIsMobileRestricted(true);
-      } else {
-        setIsMobileRestricted(false);
-      }
+      setIsMobileRestricted(isTabletOrMobile || isSmallScreen);
     };
 
-    // Run on mount
     checkDevice();
-
-    // Listen for resizes (e.g., switching to dev tools mobile view)
     window.addEventListener('resize', checkDevice);
     return () => window.removeEventListener('resize', checkDevice);
   }, []);
-
 
   useEffect(() => {
     let int;
@@ -262,113 +239,178 @@ export default function TestPage() {
     return () => clearInterval(int);
   }, [checks.camera, isMobileRestricted]);
 
-  // Clean up media streams if user leaves page
+  // Clean up media streams
   useEffect(() => {
     return () => {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      if (videoStreamRef.current) videoStreamRef.current.getTracks().forEach((track) => track.stop());
+      if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
-  /* --- 1. ENHANCED HARDWARE CHECK (Hardware Switches & Shutter Detection) --- */
+  /* --- Global Hardware Listener (Catches Keyboard Mutes) --- */
+  const bindHardwareListeners = useCallback((track, type) => {
+    track.onmute = () => {
+      setHardwareIssue({
+        missing: true,
+        type, 
+        message: `Your ${type === 'video' ? 'Camera' : 'Microphone'} was disabled via keyboard or system settings. Please unmute to continue.`
+      });
+      updateCheck(type === 'video' ? 'camera' : 'audio', 'error');
+      setShowSuccessPopup(false); 
+    };
+    
+    track.onunmute = () => {
+      setHardwareIssue({ missing: false, type: '', message: '' });
+      updateCheck(type === 'video' ? 'camera' : 'audio', 'success');
+    };
+
+    track.onended = () => {
+      setHardwareIssue({
+        missing: true,
+        type, 
+        message: `Your ${type === 'video' ? 'Camera' : 'Microphone'} was physically disconnected.`
+      });
+      updateCheck(type === 'video' ? 'camera' : 'audio', 'error');
+      setShowSuccessPopup(false);
+    };
+  }, []);
+
+  /* --- Helper: Check Physical Shutter & Fake Driver Feeds --- */
+  const checkShutter = (videoTrack) => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.srcObject = new MediaStream([videoTrack]);
+      
+      const timeout = setTimeout(() => resolve({ covered: false, isStatic: true }), 3000);
+
+      video.onloadeddata = async () => {
+        clearTimeout(timeout);
+        await new Promise((r) => setTimeout(r, 600)); 
+        
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          
+          // Frame 1
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const frame1 = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          
+          // Wait briefly to capture a second frame for noise comparison
+          await new Promise((r) => setTimeout(r, 150));
+          
+          // Frame 2
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const frame2 = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          
+          let blackPixels = 0;
+          let identicalPixels = 0;
+          const totalPixels = frame1.length / 4;
+          
+          for (let i = 0; i < frame1.length; i += 4) {
+            // Check for physical shutter (pure black)
+            if (frame1[i] < 15 && frame1[i + 1] < 15 && frame1[i + 2] < 15) {
+              blackPixels++;
+            }
+            // Check for fake/driver images (e.g. Lenovo Camera-off slash image has 0 noise)
+            if (
+              Math.abs(frame1[i] - frame2[i]) < 2 &&
+              Math.abs(frame1[i+1] - frame2[i+1]) < 2 &&
+              Math.abs(frame1[i+2] - frame2[i+2]) < 2
+            ) {
+              identicalPixels++;
+            }
+          }
+          
+          video.pause();
+          video.srcObject = null;
+          
+          resolve({
+            covered: blackPixels / totalPixels > 0.98,
+            isStatic: identicalPixels / totalPixels > 0.99 
+          });
+        } catch (e) {
+          resolve({ covered: false, isStatic: false }); 
+        }
+      };
+      video.onerror = () => {
+        clearTimeout(timeout);
+        resolve({ covered: false, isStatic: true });
+      };
+    });
+  };
+
+  /* --- 1. ENHANCED HARDWARE CHECK --- */
   const checkHardware = async () => {
     updateCheck('camera', 'loading');
     updateCheck('audio', 'loading');
-    
-    await new Promise((r) => setTimeout(r, 1000)); // UI delay for feel
+    await new Promise((r) => setTimeout(r, 800)); 
 
+    let camPass = false;
+    let micPass = false;
+
+    // --- A. CAMERA CHECK ---
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      mediaStreamRef.current = stream; 
+      const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      videoStreamRef.current = vStream;
+      const videoTrack = vStream.getVideoTracks()[0];
 
-      const videoTrack = stream.getVideoTracks()[0];
-      const audioTrack = stream.getAudioTracks()[0];
+      // Give OS time to assert hardware mute state
+      await new Promise((r) => setTimeout(r, 300)); 
 
-      if (!videoTrack || !audioTrack) {
-        throw new Error('Hardware tracks missing. Please ensure your camera and microphone are plugged in.');
-      }
-
-      // Step 1: Wait to allow OS to apply hardware switch statuses (mute states)
-      await new Promise((r) => setTimeout(r, 800));
-
-      // Step 2: Check for Laptop Hardware Switches (e.g., Fn + F4 Mic Mute, or Camera Kill Switch)
-      // Browsers set the track to 'muted' if hardware denies the feed despite software permissions
-      if (videoTrack.muted) {
+      if (!videoTrack || videoTrack.muted || videoTrack.readyState === 'ended') {
         throw new Error('Camera is disabled by a hardware switch or OS privacy settings.');
       }
-      if (audioTrack.muted) {
+
+      const { covered, isStatic } = await checkShutter(videoTrack);
+      if (covered) throw new Error('Camera lens appears to be covered.');
+      if (isStatic) throw new Error('Camera feed is frozen. A hardware switch may be engaged.');
+
+      bindHardwareListeners(videoTrack, 'video');
+      camPass = true;
+      updateCheck('camera', 'success');
+    } catch (err) {
+      updateCheck('camera', 'error');
+      toast.error(`Camera Error: ${err.message || 'Access denied'}`);
+      if (videoStreamRef.current) videoStreamRef.current.getTracks().forEach(t => t.stop());
+    }
+
+    // --- B. AUDIO CHECK ---
+    try {
+      const aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = aStream;
+      const audioTrack = aStream.getAudioTracks()[0];
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      if (!audioTrack || audioTrack.muted || audioTrack.readyState === 'ended') {
         throw new Error('Microphone is disabled by a hardware switch or OS privacy settings.');
       }
 
-      // Step 3: Check for Physical Shutter Cover (Black Frame Detection)
-      const isCameraCovered = await new Promise((resolve) => {
-        const video = document.createElement('video');
-        video.autoplay = true;
-        video.playsInline = true;
-        video.srcObject = new MediaStream([videoTrack]);
-        
-        video.onloadeddata = async () => {
-          // Wait for camera auto-exposure to adjust
-          await new Promise((r) => setTimeout(r, 600));
-          
-          try {
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-            let blackPixels = 0;
-            const totalPixels = frameData.length / 4;
-            
-            for (let i = 0; i < frameData.length; i += 4) {
-              // Check if pixel is extremely dark (accounting for slight sensor noise)
-              if (frameData[i] < 15 && frameData[i + 1] < 15 && frameData[i + 2] < 15) {
-                blackPixels++;
-              }
-            }
-            
-            video.pause();
-            video.srcObject = null;
-            
-            // If more than 98% of the camera feed is pure black, the physical shutter is closed
-            if (blackPixels / totalPixels > 0.98) {
-              resolve(true); // Covered
-            } else {
-              resolve(false); // Clear
-            }
-          } catch (e) {
-            // Fallback to pass if canvas analysis fails due to cross-origin or unsupported constraints
-            resolve(false); 
-          }
-        };
-        
-        video.onerror = () => resolve(false);
-      });
-
-      if (isCameraCovered) {
-        throw new Error('Camera lens appears to be covered or physical shutter is closed.');
-      }
-
-      updateCheck('camera', 'success');
+      bindHardwareListeners(audioTrack, 'audio');
+      micPass = true;
       updateCheck('audio', 'success');
-      return true;
-
     } catch (err) {
-      console.error("Hardware check failed:", err);
-      updateCheck('camera', 'error');
       updateCheck('audio', 'error');
-      toast.error(err.message || 'Camera or Microphone access denied. Please check your hardware.');
-      return false; // Blocks the exam from continuing
+      toast.error(`Microphone Error: ${err.message || 'Access denied'}`);
+      if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach(t => t.stop());
     }
+
+    // Only allow proceeding if BOTH pass
+    if (!camPass || !micPass) {
+      if (!camPass && audioStreamRef.current) audioStreamRef.current.getTracks().forEach(t => t.stop());
+      if (!micPass && videoStreamRef.current) videoStreamRef.current.getTracks().forEach(t => t.stop());
+    }
+    return camPass && micPass;
   };
 
   /* --- 2. Network Connectivity Check --- */
   const checkNetwork = async () => {
     updateCheck('network', 'loading');
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 800));
 
     if (navigator.onLine) {
       updateCheck('network', 'success');
@@ -385,7 +427,7 @@ export default function TestPage() {
     updateCheck('apps', 'loading');
     for (let i = 0; i <= 100; i += 5) {
       setScanProgress(i);
-      await new Promise((r) => setTimeout(r, 40)); // Slightly faster scan
+      await new Promise((r) => setTimeout(r, 40));
       if (document.hidden) {
         updateCheck('apps', 'error');
         toast.error('Do not switch tabs during security scanning!');
@@ -399,11 +441,8 @@ export default function TestPage() {
   const runAllDiagnostics = async () => {
     setIsDiagnosing(true);
     setStartInput('');
-    
-    // Reset all states
     setChecks({ camera: 'idle', audio: 'idle', network: 'idle', apps: 'idle' });
 
-    // Ensure we await each step and break if it fails
     const hwPass = await checkHardware();
     if (!hwPass) { setIsDiagnosing(false); return; }
 
@@ -417,6 +456,53 @@ export default function TestPage() {
     setTimeout(() => setShowSuccessPopup(true), 500);
   };
 
+  // Regular interval check as a fallback incase the events drop
+  const monitorHardwareDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasCam = devices.some(device => device.kind === 'videoinput');
+      const hasMic = devices.some(device => device.kind === 'audioinput');
+
+      if (!hasCam || !hasMic) {
+        setHardwareIssue({
+          missing: true, 
+          type: !hasCam && !hasMic ? 'both' : (!hasCam ? 'video' : 'audio'),
+          message: !hasCam && !hasMic ? 'Webcam and Microphone are disconnected.' : 
+                   !hasCam ? 'Webcam is disconnected.' : 'Microphone is disconnected.'
+        });
+        updateCheck(!hasCam ? 'camera' : 'audio', 'error');
+        setShowSuccessPopup(false); 
+      } else {
+        const isVideoDead = videoStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
+        const isAudioDead = audioStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
+
+        if (isVideoDead || isAudioDead) {
+          const deadType = isVideoDead ? 'video' : 'audio';
+          setHardwareIssue({
+            missing: true,
+            type: deadType,
+            message: `Your ${deadType === 'video' ? 'Camera' : 'Microphone'} is currently muted or blocked by another application.`,
+          });
+          updateCheck(deadType === 'video' ? 'camera' : 'audio', 'error');
+          setShowSuccessPopup(false); 
+        } else {
+          setHardwareIssue({ missing: false, type: '', message: '' });
+        }
+      }
+    } catch (err) {
+      console.error("Hardware monitor error:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    navigator.mediaDevices.addEventListener('devicechange', monitorHardwareDevices);
+    const interval = setInterval(monitorHardwareDevices, 5000);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', monitorHardwareDevices);
+      clearInterval(interval);
+    };
+  }, [monitorHardwareDevices]);
+
   const startExam = async () => {
     try {
       const el = document.documentElement;
@@ -429,9 +515,21 @@ export default function TestPage() {
 
   return (
     <PageContainer title="System Checks" description="Preparing environment">
+      {/* =========================================================
+        CRITICAL FIX: OVERLAY BOX TO STRICTLY HIDE THE NAVBAR
+        position: 'fixed' completely covers standard layouts
+        =========================================================
+      */}
       <Box
         sx={{
-          minHeight: '100vh',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100vw',
+          height: '100vh',
+          zIndex: 999999, // Super high z-index to cover Sidebars and Navbars
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -439,6 +537,7 @@ export default function TestPage() {
           px: 2,
           bgcolor: isDark ? '#121212' : '#F8FAFC',
           transition: 'background-color 0.3s ease',
+          overflowY: 'auto',
         }}
       >
         <Box
@@ -462,7 +561,7 @@ export default function TestPage() {
             <Grid item xs={12} md={5}>
               <Box
                 sx={{
-                  background: 'linear-gradient(135deg, #8B5CF6 0%, #D946EF 50%, #F43F5E 100%)', // Dusky Sunset Gradient
+                  background: 'linear-gradient(135deg, #8B5CF6 0%, #D946EF 50%, #F43F5E 100%)',
                   borderRadius: '32px',
                   overflow: 'hidden',
                   boxShadow: isDark ? '0 20px 50px rgba(217, 70, 239, 0.15)' : '0 20px 50px rgba(217, 70, 239, 0.25)',
@@ -498,12 +597,7 @@ export default function TestPage() {
                     >
                       {idleIcons[idleIndex].icon}
                     </Box>
-                    <Typography
-                      variant="body1"
-                      fontWeight="800"
-                      textTransform="uppercase"
-                      letterSpacing={1}
-                    >
+                    <Typography variant="body1" fontWeight="800" textTransform="uppercase" letterSpacing={1}>
                       {idleIcons[idleIndex].label}
                     </Typography>
                   </Box>
@@ -535,12 +629,7 @@ export default function TestPage() {
                           overflow: 'hidden',
                           bgcolor: 'rgba(255,255,255,0.2)',
                           backdropFilter: 'blur(4px)',
-                          animation:
-                            checks.camera === 'success'
-                              ? `${pulseSuccess} 2s infinite`
-                              : checks.camera === 'error' 
-                              ? 'none'
-                              : `${pulseAvatar} 1.5s infinite`,
+                          animation: checks.camera === 'success' ? `${pulseSuccess} 2s infinite` : checks.camera === 'error' ? 'none' : `${pulseAvatar} 1.5s infinite`,
                         }}
                       >
                         <Avatar
@@ -575,41 +664,17 @@ export default function TestPage() {
                       {/* Status Label below Avatar */}
                       <Box mt={2} height={30}>
                         {checks.camera === 'loading' && (
-                          <Typography
-                            variant="button"
-                            color="#ffffff"
-                            fontWeight="800"
-                            letterSpacing={2}
-                            display="flex"
-                            alignItems="center"
-                            gap={1}
-                          >
+                          <Typography variant="button" color="#ffffff" fontWeight="800" letterSpacing={2} display="flex" alignItems="center" gap={1}>
                             <IconScanEye size={20} /> CHECKING HARDWARE...
                           </Typography>
                         )}
                         {checks.camera === 'success' && (
-                          <Typography
-                            variant="button"
-                            color="#10B981"
-                            fontWeight="800"
-                            letterSpacing={2}
-                            display="flex"
-                            alignItems="center"
-                            gap={1}
-                          >
+                          <Typography variant="button" color="#10B981" fontWeight="800" letterSpacing={2} display="flex" alignItems="center" gap={1}>
                             <IconCircleCheckFilled size={20} /> HARDWARE VERIFIED
                           </Typography>
                         )}
                         {checks.camera === 'error' && (
-                          <Typography
-                            variant="button"
-                            color="#EF4444"
-                            fontWeight="800"
-                            letterSpacing={2}
-                            display="flex"
-                            alignItems="center"
-                            gap={1}
-                          >
+                          <Typography variant="button" color="#EF4444" fontWeight="800" letterSpacing={2} display="flex" alignItems="center" gap={1}>
                             <IconAlertCircleFilled size={20} /> ACCESS DENIED
                           </Typography>
                         )}
@@ -663,30 +728,28 @@ export default function TestPage() {
                 <Stack spacing={2.5} flex={1}>
                   <ChecklistItem
                     icon={<IconVideo />}
-                    title="Camera & Microphone Access"
+                    title="Webcam Access"
                     status={checks.camera}
                     subtitle={
                       checks.camera === 'success'
-                        ? 'Hardware access granted'
+                        ? 'Camera verified and active'
                         : checks.camera === 'error'
-                        ? 'Permissions denied or hardware disabled'
+                        ? 'Camera denied, blocked, or covered'
                         : 'Awaiting hardware check...'
                     }
                   />
-
                   <ChecklistItem
                     icon={<IconMicrophone />}
-                    title="Environment Audio"
+                    title="Microphone Access"
                     status={checks.audio}
                     subtitle={
                       checks.audio === 'success'
                         ? 'Microphone verified'
                         : checks.audio === 'error'
-                        ? 'Failed to connect to mic'
-                        : 'Checking hardware...'
+                        ? 'Microphone denied or muted'
+                        : 'Awaiting hardware check...'
                     }
                   />
-
                   <ChecklistItem
                     icon={<IconWifi />}
                     title="Network Connection"
@@ -699,7 +762,6 @@ export default function TestPage() {
                         : 'Ensuring active connection...'
                     }
                   />
-
                   <ChecklistItem
                     icon={<IconApps />}
                     title="Background Environment"
@@ -721,13 +783,7 @@ export default function TestPage() {
                   size="large"
                   onClick={runAllDiagnostics}
                   disabled={isDiagnosing}
-                  startIcon={
-                    isDiagnosing ? (
-                      <IconLoader2 style={{ animation: `${spin} 1s linear infinite` }} />
-                    ) : (
-                      <IconShieldCheck />
-                    )
-                  }
+                  startIcon={isDiagnosing ? <IconLoader2 style={{ animation: `${spin} 1s linear infinite` }} /> : <IconShieldCheck />}
                   sx={{
                     mt: 4,
                     py: 2,
@@ -813,7 +869,44 @@ export default function TestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ================= MOBILE/TABLET RESTRICTION POPUP (STRICT BLOCK) ================= */}
+        {/* ================= HARDWARE ERROR POPUP ================= */}
+        <Dialog
+          open={hardwareIssue.missing}
+          PaperProps={{
+            sx: {
+              borderRadius: '24px',
+              bgcolor: isDark ? '#1E293B' : '#ffffff',
+              p: 2,
+              textAlign: 'center',
+              boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.3)'
+            }
+          }}
+        >
+          <DialogContent>
+            <Box mb={2} color="#EF4444" display="flex" justifyContent="center">
+              {hardwareIssue.type === 'video' ? <VideocamOffIcon sx={{ fontSize: 60 }} /> : <MicOffIcon sx={{ fontSize: 60 }} />}
+            </Box>
+            <Typography variant="h5" fontWeight="800" color={isDark ? 'white' : '#0F172A'} mb={1}>
+              Hardware Disconnected
+            </Typography>
+            <Typography variant="body1" color={isDark ? '#94A3B8' : 'textSecondary'} mb={4}>
+              {hardwareIssue.message}
+            </Typography>
+            <Button
+              variant="contained"
+              fullWidth
+              onClick={() => {
+                setHardwareIssue({ missing: false, type: '', message: '' });
+                runAllDiagnostics(); // Force re-scan to clear the block safely
+              }}
+              sx={{ py: 1.5, borderRadius: '12px', bgcolor: '#EF4444', fontWeight: 'bold', '&:hover': { bgcolor: '#DC2626' } }}
+            >
+              Retry Connection
+            </Button>
+          </DialogContent>
+        </Dialog>
+
+        {/* ================= MOBILE RESTRICTION POPUP ================= */}
         <Dialog
           open={isMobileRestricted}
           fullScreen
@@ -823,7 +916,7 @@ export default function TestPage() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              zIndex: 99999 // Ensure it overrides everything
+              zIndex: 99999 
             }
           }}
         >

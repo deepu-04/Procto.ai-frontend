@@ -71,20 +71,17 @@ const popIn = keyframes`
   100% { opacity: 1; transform: scale(1); }
 `;
 
-// 3D continuous rotation for the winner crown
 const rotate3D = keyframes`
   0% { transform: perspective(400px) rotateY(0deg); }
   100% { transform: perspective(400px) rotateY(360deg); }
 `;
 
-// Soft glowing pulse for the backgrounds
 const pulseGlow = keyframes`
   0% { box-shadow: 0 10px 40px -10px rgba(139, 92, 246, 0.2); }
   50% { box-shadow: 0 15px 50px -5px rgba(56, 189, 248, 0.3); }
   100% { box-shadow: 0 10px 40px -10px rgba(139, 92, 246, 0.2); }
 `;
 
-// Blinking cursor for typewriter effect
 const blink = keyframes`
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
@@ -133,6 +130,34 @@ const TypewriterText = ({ text, isDark }) => {
       />
     </span>
   );
+};
+
+// ================= CRITICAL FIX: ROBUST EXAM NAME HELPER =================
+// Safely identifies the exam name. If the exam was deleted from the database, 
+// it returns "Deleted Exam" instead of "N/A" so it looks intentional.
+const getExamName = (result, examsList) => {
+  // 1. If backend explicitly attached a valid name
+  if (result.examName && result.examName !== "Unknown Exam" && result.examName !== "N/A") {
+    return result.examName;
+  }
+  
+  // 2. If MongoDB populated the examId object directly
+  if (result.examId && typeof result.examId === 'object' && result.examId.examName) {
+    return result.examId.examName;
+  }
+  
+  // 3. Fallback: Cross-reference with the fetched exams array (handles UUID vs _id mismatches)
+  if (examsList && examsList.length > 0) {
+    const searchId = typeof result.examId === 'object' ? (result.examId.examId || result.examId._id) : result.examId;
+    const matchedExam = examsList.find(e => String(e.examId) === String(searchId) || String(e._id) === String(searchId));
+    
+    if (matchedExam && matchedExam.examName) {
+      return matchedExam.examName;
+    }
+  }
+  
+  // 4. Final Fallback for orphaned results (exams that were deleted)
+  return "Deleted Exam";
 };
 
 // API Configuration
@@ -203,7 +228,6 @@ const ResultPage = () => {
         withCredentials: true 
       });
       
-      // 🛠️ THE FIX: Ultra-Robust Data Extraction
       let rawData = response.data;
       if (rawData && !Array.isArray(rawData) && typeof rawData === 'object') {
         rawData = rawData.results || rawData.data || rawData.result || Object.values(rawData).find(Array.isArray) || [];
@@ -238,30 +262,34 @@ const ResultPage = () => {
 
   useEffect(() => {
     let filtered = [...results];
+    
     if (selectedExam !== 'all') {
-      filtered = filtered.filter(
-        (r) => r.examId?._id === selectedExam || r.examId === selectedExam,
-      );
+      filtered = filtered.filter((r) => {
+        const rId = typeof r.examId === 'object' ? (r.examId.examId || r.examId._id) : r.examId;
+        return rId === selectedExam || r.examId === selectedExam;
+      });
     }
+    
     if (searchTerm.trim()) {
       const search = searchTerm.toLowerCase();
       filtered = filtered.filter(
         (r) =>
           r.userId?.name?.toLowerCase().includes(search) ||
           r.userId?.email?.toLowerCase().includes(search) ||
-          r.examId?.examName?.toLowerCase().includes(search),
+          getExamName(r, exams).toLowerCase().includes(search) 
       );
     }
+    
     if (selectedTab === 1) {
-  filtered = filtered.filter((r) => r.totalMarks !== undefined);
-}
+      filtered = filtered.filter((r) => r.totalMarks !== undefined);
+    }
     if (selectedTab === 2) {
       filtered = filtered.filter((r) => r.codingSubmissions?.length > 0);
     }
 
     setFilteredResults(filtered);
     setPage(0);
-  }, [results, searchTerm, selectedExam, selectedTab]);
+  }, [results, searchTerm, selectedExam, selectedTab, exams]);
 
   const paginatedResults = filteredResults.slice(
     page * rowsPerPage,
@@ -277,14 +305,17 @@ const ResultPage = () => {
     if (userInfo?.role === 'student') {
       return [...filteredResults]
         .reverse()
-        .map((r, i) => ({
-          name: r.examId?.examName || `Exam ${i + 1}`,
-          score: parseFloat((r.percentage || 0).toFixed(1)),
-        }));
+        .map((r, i) => {
+          const name = getExamName(r, exams);
+          return {
+            name: name !== "Deleted Exam" ? name : `Exam ${i + 1}`,
+            score: parseFloat((r.percentage || 0).toFixed(1)),
+          };
+        });
     } else {
       const examMap = {};
       filteredResults.forEach((r) => {
-        const name = r.examId?.examName || 'Unknown';
+        const name = getExamName(r, exams);
         if (!examMap[name]) examMap[name] = { sum: 0, count: 0 };
         examMap[name].sum += r.percentage || 0;
         examMap[name].count += 1;
@@ -294,7 +325,7 @@ const ResultPage = () => {
         avgScore: parseFloat((examMap[key].sum / examMap[key].count).toFixed(1)),
       }));
     }
-  }, [filteredResults, userInfo]);
+  }, [filteredResults, userInfo, exams]);
 
   const handleChangePage = (event, newPage) => setPage(newPage);
   const handleChangeRowsPerPage = (event) => {
@@ -706,7 +737,7 @@ const ResultPage = () => {
                       >
                         <MenuItem value="all">All Exams</MenuItem>
                         {exams.map((exam) => (
-                          <MenuItem key={exam._id} value={exam._id}>
+                          <MenuItem key={exam._id} value={exam.examId || exam._id}>
                             {exam.examName}
                           </MenuItem>
                         ))}
@@ -878,9 +909,17 @@ const ResultPage = () => {
                                     </Box>
                                   </Box>
                                 </TableCell>
+                                
+                                {/* REFACTORED EXAM NAME CELL */}
                                 <TableCell sx={{ color: isDark ? '#F8FAFC' : 'inherit' }}>
-  {exams.find((e) => e.examId === result.examId)?.examName || "N/A"}
-</TableCell>
+                                  <Box display="flex" alignItems="center" gap={1}>
+                                    {getExamName(result, exams)}
+                                    {getExamName(result, exams) === "Deleted Exam" && (
+                                      <Chip label="Orphaned Data" size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }}/>
+                                    )}
+                                  </Box>
+                                </TableCell>
+
                                 <TableCell>
                                   <Typography variant="body2" fontWeight="bold" color={isDark ? '#60A5FA' : 'primary.main'}>
                                     {result.percentage?.toFixed(2)}%

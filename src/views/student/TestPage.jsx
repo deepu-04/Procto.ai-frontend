@@ -17,13 +17,15 @@ import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import VpnLockIcon from '@mui/icons-material/VpnLock';
 import RouterIcon from '@mui/icons-material/Router';
+import VideocamOffIcon from '@mui/icons-material/VideocamOff';
+import MicOffIcon from '@mui/icons-material/MicOff';
 import WebCam from './Components/WebCam';
 import { useGetExamsQuery, useGetQuestionsQuery } from '../../slices/examApiSlice';
 import { useSaveCheatingLogMutation } from '../../slices/cheatingLogApiSlice';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { useCheatingLog } from '../../context/CheatingLogContext';
-import axiosInstance from '../../axios'; // Added to securely hit relative backend paths
+import axiosInstance from '../../axios';
 
 // --- Dynamic Screen Watermarking ---
 const WatermarkOverlay = ({ userInfo }) => {
@@ -72,15 +74,16 @@ const TestPage = () => {
   const heartbeatRef = useRef(null);
   const audioContextRef = useRef(null);
   const audioStreamRef = useRef(null);
+  const videoStreamRef = useRef(null);
   const audioAnimationRef = useRef(null);
   const susTimerRef = useRef(null);
+  const hardwareMonitorRef = useRef(null);
 
   // Tracking Refs to prevent Infinite Loops & Toast Spam
   const lastKeyTimeRef = useRef(Date.now());
   const lastViolationTimesRef = useRef({});
   const loggedViolationsRef = useRef(new Set());
   
-  // FIX: Separated IP tracking refs to prevent IPv4 vs IPv6 mismatches causing false VPN flags
   const initialWebrtcIpRef = useRef(null);
   const initialIpifyIpRef = useRef(null);
   
@@ -97,7 +100,7 @@ const TestPage = () => {
     isLoading: isQuestionsLoading,
     error: questionsError,
   } = useGetQuestionsQuery(examId);
-  const { data: userExamdata, isLoading: isExamsLoading, error: examsError } = useGetExamsQuery();
+  const { data: userExamdata, isLoading: isExamsLoading } = useGetExamsQuery();
 
   // States
   const [examDurationInSeconds, setExamDurationInSeconds] = useState(0);
@@ -110,6 +113,7 @@ const TestPage = () => {
   const [networkIssue, setNetworkIssue] = useState(false);
   const [vpnDetected, setVpnDetected] = useState(false);
   const [multipleIpDetected, setMultipleIpDetected] = useState(false);
+  const [hardwareIssue, setHardwareIssue] = useState({ missing: false, type: '', message: '' });
 
   // Dynamic Blur & Darkness States
   const [blurIntensity, setBlurIntensity] = useState(0);
@@ -129,7 +133,13 @@ const TestPage = () => {
 
   // Question UI State
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
-  const [answers, setAnswers] = useState({});
+  
+  // Try to load pre-existing answers from localStorage if they refreshed the page
+  const [answers, setAnswers] = useState(() => {
+    const saved = localStorage.getItem(`mcq_state_${examId}`);
+    return saved ? JSON.parse(saved) : {};
+  });
+  
   const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
 
   useEffect(() => {
@@ -140,20 +150,30 @@ const TestPage = () => {
     if (Array.isArray(userExamdata)) {
       const exam = userExamdata.find((e) => e.examId === examId);
       if (exam?.duration) {
-  setExamDurationInSeconds(exam.duration * 60);
-}
+        setExamDurationInSeconds(exam.duration * 60);
+      }
     }
   }, [userExamdata, examId]);
 
-  // Robustly handle API response shapes for questions
+  // ================= CRITICAL FIX: BULLETPROOF MCQ FILTER =================
   useEffect(() => {
+    let loadedQuestions = [];
     if (Array.isArray(questionsData)) {
-      setQuestions(questionsData);
+      loadedQuestions = questionsData;
     } else if (questionsData && Array.isArray(questionsData.questions)) {
-      setQuestions(questionsData.questions);
+      loadedQuestions = questionsData.questions;
     } else if (questionsData && Array.isArray(questionsData.data)) {
-      setQuestions(questionsData.data);
+      loadedQuestions = questionsData.data;
     }
+
+    const mcqOnly = loadedQuestions.filter((q) => {
+      const isCodingSection = q.section === 'coding' || q.type === 'coding';
+      const hasTestCases = q.testCases && q.testCases.length > 0;
+      // If it's a coding section OR it has test cases, EXCLUDE IT from this page.
+      return !isCodingSection && !hasTestCases; 
+    });
+
+    setQuestions(mcqOnly);
   }, [questionsData]);
 
   // --- ANTI-SPAM AUTO SUBMIT ---
@@ -181,7 +201,7 @@ const TestPage = () => {
 
   // --- Active Countdown Timer ---
   useEffect(() => {
-    if (!isFullscreen || networkIssue || vpnDetected || multipleIpDetected || isSuspiciousEnv)
+    if (!isFullscreen || networkIssue || vpnDetected || multipleIpDetected || isSuspiciousEnv || hardwareIssue.missing)
       return;
     const timer = setInterval(() => {
       setExamDurationInSeconds((prev) => {
@@ -197,7 +217,7 @@ const TestPage = () => {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [isFullscreen, networkIssue, vpnDetected, multipleIpDetected, isSuspiciousEnv]);
+  }, [isFullscreen, networkIssue, vpnDetected, multipleIpDetected, isSuspiciousEnv, hardwareIssue.missing]);
 
   // --- STABLE REGISTRATION ---
   const registerViolation = useCallback(
@@ -209,7 +229,7 @@ const TestPage = () => {
       lastViolationTimesRef.current[type] = now;
 
       if (
-        ['VPN_DETECTED', 'MULTIPLE_IPS', 'DEV_TOOLS_OR_VM'].includes(type) &&
+        ['VPN_DETECTED', 'MULTIPLE_IPS', 'DEV_TOOLS_OR_VM', 'HARDWARE_DISCONNECT'].includes(type) &&
         loggedViolationsRef.current.has(type)
       ) {
         return;
@@ -231,7 +251,7 @@ const TestPage = () => {
       setRiskScore((prev) => Math.min(100, prev + weight));
       toast.error(message);
     },
-    [updateCheatingLog],
+    [updateCheatingLog]
   );
 
   // --- DYNAMIC Object Detection & Screen Darkening ---
@@ -253,8 +273,83 @@ const TestPage = () => {
         setDarknessLevel(0);
       }, 5000);
     },
-    [registerViolation],
+    [registerViolation]
   );
+
+  // --- HARDWARE LEVEL MEDIA LOCKS (Keyboard / OS Mute Detection) ---
+  const setupMediaTrackListeners = useCallback((stream, type) => {
+    stream.getTracks().forEach((track) => {
+      // Listener for physical/OS mute buttons
+      track.onmute = () => {
+        setHardwareIssue({
+          missing: true,
+          type: type,
+          message: `Your ${type === 'video' ? 'Camera' : 'Microphone'} was disabled via keyboard or system settings. Please unmute to continue.`,
+        });
+        registerViolation('HARDWARE_MUTED', `${type} muted at OS level`, 'critical', 30);
+      };
+
+      // Listener for when track becomes active again
+      track.onunmute = () => {
+        setHardwareIssue({ missing: false, type: '', message: '' });
+      };
+
+      // Listener for complete physical disconnection (unplugging)
+      track.onended = () => {
+        setHardwareIssue({
+          missing: true,
+          type: type,
+          message: `Your ${type === 'video' ? 'Camera' : 'Microphone'} was physically disconnected or permissions were revoked.`,
+        });
+        registerViolation('HARDWARE_DISCONNECT', `${type} stream killed`, 'critical', 50);
+      };
+    });
+  }, [registerViolation]);
+
+  const monitorHardwareDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasCam = devices.some(device => device.kind === 'videoinput');
+      const hasMic = devices.some(device => device.kind === 'audioinput');
+
+      if (!hasCam || !hasMic) {
+        setHardwareIssue({
+          missing: true, 
+          type: !hasCam && !hasMic ? 'both' : !hasCam ? 'video' : 'audio',
+          message: !hasCam && !hasMic ? 'Webcam and Microphone are disconnected.' : 
+                   !hasCam ? 'Webcam is disconnected.' : 'Microphone is disconnected.'
+        });
+        registerViolation('HARDWARE_DISCONNECT', 'Media devices disconnected', 'critical', 40);
+      } else {
+        // If devices exist physically, verify the streams are actually still alive
+        const isAudioDead = audioStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
+        const isVideoDead = videoStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
+
+        if (isAudioDead || isVideoDead) {
+          setHardwareIssue({
+            missing: true,
+            type: isAudioDead ? 'audio' : 'video',
+            message: `Your ${isAudioDead ? 'Microphone' : 'Camera'} is currently muted or blocked by another application.`,
+          });
+        } else {
+          setHardwareIssue({ missing: false, type: '', message: '' });
+        }
+      }
+    } catch (err) {
+      console.error("Hardware monitor error:", err);
+    }
+  }, [registerViolation]);
+
+  useEffect(() => {
+    navigator.mediaDevices.addEventListener('devicechange', monitorHardwareDevices);
+    hardwareMonitorRef.current = setInterval(monitorHardwareDevices, 5000);
+
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', monitorHardwareDevices);
+      clearInterval(hardwareMonitorRef.current);
+    };
+  }, [monitorHardwareDevices]);
+
 
   // --- WebRTC Multiple IP / Remote PC Detection ---
   useEffect(() => {
@@ -284,7 +379,7 @@ const TestPage = () => {
               'MULTIPLE_IPS',
               'Secondary routing IP detected (Remote PC / VPN active)',
               'critical',
-              40,
+              40
             );
           }
         }
@@ -296,7 +391,6 @@ const TestPage = () => {
   // --- Realtime Public IP Monitor ---
   const monitorPublicIP = async () => {
     try {
-      // FIX: Force API to return IPv4 to prevent mismatches
       const res = await fetch('https://api.ipify.org?format=json');
       const data = await res.json();
       const currentIp = data.ip;
@@ -309,7 +403,7 @@ const TestPage = () => {
           'VPN_DETECTED',
           'Network IP changed dynamically mid-exam (VPN/Proxy active)',
           'critical',
-          40,
+          40
         );
       }
     } catch (err) {
@@ -334,11 +428,14 @@ const TestPage = () => {
     };
   }, [registerViolation]);
 
-  // --- Audio Monitoring ---
+  // --- Audio Monitoring & Enforcement ---
   const initializeAudioMonitoring = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       audioStreamRef.current = stream;
+
+      // Attach mute/unmute listeners for OS-level intervention
+      setupMediaTrackListeners(stream, 'audio');
 
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = audioContext.createAnalyser();
@@ -365,7 +462,19 @@ const TestPage = () => {
       checkAudioLevel();
       audioContextRef.current = audioContext;
     } catch (err) {
+      setHardwareIssue({ missing: true, type: 'audio', message: 'Microphone access denied or blocked.' });
       registerViolation('HARDWARE_ERROR', 'Microphone access denied', 'critical', 30);
+    }
+  };
+
+  // Pre-fetch video stream specifically to bind hardware mute listeners
+  const initializeVideoMonitoring = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      videoStreamRef.current = stream;
+      setupMediaTrackListeners(stream, 'video');
+    } catch (err) {
+      setHardwareIssue({ missing: true, type: 'video', message: 'Camera access denied or blocked.' });
     }
   };
 
@@ -374,12 +483,7 @@ const TestPage = () => {
     if (!isFullscreen) return;
 
     if (navigator.webdriver || window.outerWidth - window.innerWidth > 200) {
-      registerViolation(
-        'DEV_TOOLS_OR_VM',
-        'Virtual Machine or Developer Tools detected',
-        'critical',
-        50,
-      );
+      registerViolation('DEV_TOOLS_OR_VM', 'Virtual Machine or Developer Tools detected', 'critical', 50);
     }
 
     const handleContextMenu = (e) => {
@@ -417,17 +521,9 @@ const TestPage = () => {
       }
       lastKeyTimeRef.current = now;
 
-      if (
-        e.key === 'PrintScreen' ||
-        (e.metaKey && e.shiftKey && ['s', 'S', '3', '4', '5'].includes(e.key))
-      ) {
+      if (e.key === 'PrintScreen' || (e.metaKey && e.shiftKey && ['s', 'S', '3', '4', '5'].includes(e.key))) {
         e.preventDefault();
-        registerViolation(
-          'SCREEN_CAPTURE_ATTEMPT',
-          'Screenshot or screen recording shortcut used',
-          'critical',
-          35,
-        );
+        registerViolation('SCREEN_CAPTURE_ATTEMPT', 'Screenshot or screen recording shortcut used', 'critical', 35);
       }
 
       if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'p', 's'].includes(e.key.toLowerCase())) {
@@ -447,6 +543,7 @@ const TestPage = () => {
     window.addEventListener('keydown', handleKeyDown);
 
     initializeAudioMonitoring();
+    initializeVideoMonitoring();
 
     return () => {
       document.removeEventListener('contextmenu', handleContextMenu);
@@ -466,8 +563,11 @@ const TestPage = () => {
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
     };
-  }, [isFullscreen, registerViolation]);
+  }, [isFullscreen, registerViolation, setupMediaTrackListeners]);
 
   const handleStartExam = async () => {
     try {
@@ -482,24 +582,17 @@ const TestPage = () => {
         monitorPublicIP();
 
         try {
-          // FIX: Secure backend call replacing the hardcoded http://localhost:5000 
-          // Softened to prevent false-positives triggered by hosted reverse proxies
           const res = await axiosInstance.get('/network/check');
           const result = res.data;
           
           if (result && result.ipChanged === true) {
             setVpnDetected(true);
-            registerViolation(
-              'VPN_DETECTED',
-              'Active VPN or network routing change detected',
-              'critical',
-              40,
-            );
+            registerViolation('VPN_DETECTED', 'Active VPN or network routing change detected', 'critical', 40);
           } else if (result && result.networkRisk?.risk >= 85) {
             registerViolation('NETWORK_RISK', 'Suspicious network routing', 'high', 25);
           }
         } catch (err) {
-            // Silently fail if endpoint is down, rely on frontend monitorPublicIP instead
+            // Silently fail if endpoint is down
         }
       }, 10000);
     } catch {
@@ -513,12 +606,7 @@ const TestPage = () => {
         setIsFullscreen(false);
         const newStrikes = fullscreenStrikes + 1;
         setFullscreenStrikes(newStrikes);
-        registerViolation(
-          'FULLSCREEN_EXIT',
-          `Exited fullscreen mode. Warning ${newStrikes}/3`,
-          'critical',
-          20,
-        );
+        registerViolation('FULLSCREEN_EXIT', `Exited fullscreen mode. Warning ${newStrikes}/3`, 'critical', 20);
 
         if (newStrikes >= 3 && !hasAutoSubmittedRef.current) {
           toast.error('Maximum violations reached. Submitting test.');
@@ -536,113 +624,96 @@ const TestPage = () => {
     };
   }, [fullscreenStrikes, registerViolation]);
 
-  // --- SECTION TRANSITION & SUBMISSION LOGIC ---
-  const handleTestSubmission = useCallback(async () => {
-  if (isSubmitting) return;
-
-  setIsSubmitting(true);
-
-  try {
-    const token = localStorage.getItem("token");
-
-    // ================= TOKEN CHECK =================
-    if (!token) {
-      toast.error("Session expired. Please login again.");
-      navigate("/login");
-      setIsSubmitting(false);
-      return;
-    }
-
-    // ================= PREVENT EMPTY SUBMISSION =================
-    if (Object.keys(answers).length === 0) {
-      toast.error("No answers selected");
-      setIsSubmitting(false);
-      return;
-    }
-
-    // ================= FORMAT MCQ ANSWERS =================
-    const userResponses = Object.keys(answers).map((idx) => {
+  // --- GET FORMATTED RESPONSES HELPER ---
+  const getFormattedResponses = useCallback(() => {
+    return Object.keys(answers).map((idx) => {
       const index = Number(idx);
-
       return {
         questionId: questions[index]?._id,
         selectedOption: answers[index],
       };
     });
+  }, [answers, questions]);
 
-    // ================= SUBMIT RESULT =================
-    await axiosInstance.post(
-      "/api/results/submit",
-      {
-        examId,
-        answers: userResponses,
-        codingSubmissions: [], // MCQ section only
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+  // --- FINAL MCQ SUBMISSION LOGIC ---
+  const handleTestSubmission = useCallback(async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        toast.error("Session expired. Please login again.");
+        navigate("/login");
+        setIsSubmitting(false);
+        return;
       }
-    );
 
-    // ================= SAVE CHEATING LOG =================
-    const payload = {
-      examId,
-      username: userInfo?.name,
-      email: userInfo?.email,
-      ...cheatingLogRef.current,
-    };
+      if (Object.keys(answers).length === 0) {
+        toast.error("No answers selected");
+        setIsSubmitting(false);
+        return;
+      }
 
-    await saveCheatingLogMutation(payload).unwrap();
+      const userResponses = getFormattedResponses();
 
-    toast.success("Exam submitted successfully");
+      await axiosInstance.post(
+        "/api/results/submit",
+        {
+          examId,
+          answers: userResponses,
+          codingSubmissions: [], 
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-    // ================= EXIT FULLSCREEN =================
-    if (document.fullscreenElement) {
-      await document.exitFullscreen().catch(() => {});
+      const payload = {
+        examId,
+        username: userInfo?.name,
+        email: userInfo?.email,
+        ...cheatingLogRef.current,
+      };
+
+      await saveCheatingLogMutation(payload).unwrap();
+      toast.success("MCQ Section submitted successfully");
+      
+      // Clear localStorage after successful submit
+      localStorage.removeItem(`mcq_answers_${examId}`);
+      localStorage.removeItem(`mcq_state_${examId}`);
+
+      if (document.fullscreenElement) {
+        await document.exitFullscreen().catch(() => {});
+      }
+
+      navigate("/success");
+
+    } catch (error) {
+      console.error("Submission Error:", error);
+      toast.error(error?.response?.data?.message || "Submission failed. Check connection.");
+      setIsSubmitting(false);
+      hasAutoSubmittedRef.current = false;
     }
+  }, [answers, examId, userInfo, saveCheatingLogMutation, navigate, isSubmitting, getFormattedResponses]);
 
-    navigate("/success");
-
-  } catch (error) {
-
-    console.error("Submission Error:", error);
-
-    toast.error(
-      error?.response?.data?.message || "Submission failed. Check connection."
-    );
-
-    setIsSubmitting(false);
-    hasAutoSubmittedRef.current = false;
-  }
-}, [
-  answers,
-  questions,
-  examId,
-  userInfo,
-  saveCheatingLogMutation,
-  navigate,
-  isSubmitting,
-]);
-
+  // --- SECTION TRANSITION LOGIC ---
   const handleSectionChangeAttempt = (sectionValue) => {
-    if (sectionValue === 'coding') {
-      setTargetSection('coding');
-      setSectionSwitchModal(true);
-    } else {
-      setTargetSection(sectionValue);
-      setSectionSwitchModal(true);
-    }
+    setTargetSection(sectionValue);
+    setSectionSwitchModal(true);
   };
 
   const confirmSectionSwitch = () => {
     setSectionSwitchModal(false);
+    
     if (targetSection === 'submit') {
       handleTestSubmission();
     } else if (targetSection === 'coding') {
+      // SAVE THE MCQ ANSWERS TO LOCALSTORAGE BEFORE ROUTING
+      const userResponses = getFormattedResponses();
+      localStorage.setItem(`mcq_answers_${examId}`, JSON.stringify(userResponses));
+      
+      // Navigate to separate coder component
       navigate(`/exam/${examId}/code`);
-    } else {
-      handleTestSubmission();
     }
   };
 
@@ -659,28 +730,27 @@ const TestPage = () => {
     setVisitedQuestions((prev) => new Set(prev).add(idx));
   };
 
-  const handleSelectOption = (optIdx) => {
-    setAnswers((prev) => ({ ...prev, [currentQuestionIdx]: optIdx }));
+  const handleAnswerChange = (value) => {
+    const newAnswers = { ...answers, [currentQuestionIdx]: value };
+    setAnswers(newAnswers);
+    // Back up the current raw state
+    localStorage.setItem(`mcq_state_${examId}`, JSON.stringify(newAnswers));
   };
 
   const handleClearOption = () => {
-    setAnswers((prev) => {
-      const newAns = { ...prev };
-      delete newAns[currentQuestionIdx];
-      return newAns;
-    });
+    const newAnswers = { ...answers };
+    delete newAnswers[currentQuestionIdx];
+    setAnswers(newAnswers);
+    localStorage.setItem(`mcq_state_${examId}`, JSON.stringify(newAnswers));
   };
 
-  const formatTime = (seconds = 0) =>
-  new Date(seconds * 1000).toISOString().substr(11, 8);
+  const formatTime = (seconds = 0) => new Date(seconds * 1000).toISOString().substring(11, 19);
 
   const currentQ = questions[currentQuestionIdx] || {};
-  const displayQuestionText =
-    currentQ.questionText || currentQ.question || currentQ.text || currentQ.title || 'Loading...';
+  const displayQuestionText = currentQ.questionText || currentQ.question || currentQ.text || currentQ.title || 'Loading...';
   const currentOptions = currentQ.options || currentQ.choices || currentQ.answers || [];
-
+  
   const attemptedCount = Object.keys(answers || {}).length;
-  // Dynamically checking if it's the last question or only question available
   const isLastQuestion = questions.length === 0 || currentQuestionIdx === questions.length - 1;
 
   if (isExamsLoading || isQuestionsLoading)
@@ -689,6 +759,22 @@ const TestPage = () => {
         <CircularProgress />
       </Box>
     );
+
+  // --- EMPTY STATE HANDLING (IF NO MCQs EXIST) ---
+  if (questions.length === 0 && !isQuestionsLoading) {
+    return (
+      <Box minHeight="100vh" display="flex" flexDirection="column" justifyContent="center" alignItems="center" gap={3}>
+        <Typography variant="h5">No Multiple Choice questions found for this exam.</Typography>
+        <Button 
+          variant="contained" 
+          color="primary" 
+          onClick={() => navigate(`/exam/${examId}/code`)} 
+        >
+          Proceed straight to Coding Section
+        </Button>
+      </Box>
+    );
+  }
 
   return (
     <Box
@@ -707,212 +793,79 @@ const TestPage = () => {
         zIndex: 9999,
       }}
     >
-      {/* --- ALL SECURITY MODALS --- */}
-      <Modal
-        open={multipleIpDetected}
-        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}
-      >
-        <Box
-          sx={{
-            bgcolor: 'white',
-            borderRadius: 3,
-            p: 5,
-            width: 450,
-            outline: 'none',
-            textAlign: 'center',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-          }}
-        >
+      {/* --- HARDWARE ISSUE MODAL --- */}
+      <Modal open={hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}>
+        <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+          {hardwareIssue.type === 'audio' ? (
+            <MicOffIcon sx={{ fontSize: 60, color: '#EF4444', mb: 1 }} />
+          ) : (
+            <VideocamOffIcon sx={{ fontSize: 60, color: '#EF4444', mb: 1 }} />
+          )}
+          <Typography variant="h5" fontWeight={700} mb={2} color="error">Hardware Disconnected</Typography>
+          <Typography variant="body2" color="textSecondary" mb={3}>
+            {hardwareIssue.message} 
+          </Typography>
+          <Button variant="contained" color="primary" onClick={monitorHardwareDevices}>
+            Check Again
+          </Button>
+        </Box>
+      </Modal>
+
+      {/* --- ALL OTHER SECURITY MODALS --- */}
+      <Modal open={multipleIpDetected && !hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}>
+        <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
           <RouterIcon sx={{ fontSize: 60, color: '#EF4444', mb: 1 }} />
-          <Typography variant="h5" fontWeight={700} mb={2} color="error">
-            Multiple IP Addresses Detected
-          </Typography>
+          <Typography variant="h5" fontWeight={700} mb={2} color="error">Multiple IP Addresses Detected</Typography>
           <Typography variant="body2" color="textSecondary" mb={3}>
-            Your exam is paused. We detected multiple network interfaces or a secondary Public IP
-            routing to this machine. This indicates a Remote PC connection (AnyDesk/TeamViewer) or
-            VPN tunnel, which is strictly prohibited. Please disable them to continue.
+            Your exam is paused. We detected multiple network interfaces or a secondary Public IP routing to this machine. This indicates a Remote PC connection or VPN tunnel, which is strictly prohibited. Please disable them to continue.
           </Typography>
         </Box>
       </Modal>
 
-      <Modal
-        open={vpnDetected && !multipleIpDetected}
-        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}
-      >
-        <Box
-          sx={{
-            bgcolor: 'white',
-            borderRadius: 3,
-            p: 5,
-            width: 450,
-            outline: 'none',
-            textAlign: 'center',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-          }}
-        >
+      <Modal open={vpnDetected && !multipleIpDetected && !hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}>
+        <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
           <VpnLockIcon sx={{ fontSize: 60, color: '#EF4444', mb: 1 }} />
-          <Typography variant="h5" fontWeight={700} mb={2} color="error">
-            VPN / Proxy Detected
-          </Typography>
+          <Typography variant="h5" fontWeight={700} mb={2} color="error">VPN / Proxy Detected</Typography>
           <Typography variant="body2" color="textSecondary" mb={3}>
-            Your exam has been paused because a VPN, secure proxy, or dynamic IP change was detected
-            mid-exam. Please disable it to maintain exam integrity.
+            Your exam has been paused because a VPN, secure proxy, or dynamic IP change was detected mid-exam. Please disable it to maintain exam integrity.
           </Typography>
         </Box>
       </Modal>
 
-      <Modal
-        open={showTrustModal && !vpnDetected && !multipleIpDetected}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backdropFilter: 'blur(3px)',
-          zIndex: 99999,
-        }}
-      >
-        <Box
-          sx={{
-            bgcolor: 'white',
-            borderRadius: 3,
-            p: 5,
-            width: 450,
-            outline: 'none',
-            textAlign: 'center',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
-          }}
-        >
+      <Modal open={showTrustModal && !vpnDetected && !multipleIpDetected && !hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)', zIndex: 99999 }}>
+        <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
           <HealthAndSafetyIcon sx={{ fontSize: 60, color: '#FACC15', mb: 1 }} />
-          <Typography variant="h5" fontWeight={700} mb={2}>
-            Trust Score Warning
-          </Typography>
+          <Typography variant="h5" fontWeight={700} mb={2}>Trust Score Warning</Typography>
           <Typography variant="body2" color="textSecondary" mb={4}>
-            Your system integrity score has dropped to {trustScore}%. Multiple violations have been
-            logged. Continued suspicious activity will result in automatic exam termination.
+            Your system integrity score has dropped to {trustScore}%. Multiple violations have been logged. Continued suspicious activity will result in automatic exam termination.
           </Typography>
-          <Button
-            variant="contained"
-            fullWidth
-            sx={{ bgcolor: '#4F46E5', py: 1.5, borderRadius: 1.5 }}
-            onClick={() => setShowTrustModal(false)}
-          >
+          <Button variant="contained" fullWidth sx={{ bgcolor: '#4F46E5', py: 1.5, borderRadius: 1.5 }} onClick={() => setShowTrustModal(false)}>
             I Understand
           </Button>
         </Box>
       </Modal>
 
-      <Modal
-        open={networkIssue && !vpnDetected && !multipleIpDetected}
-        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}
-      >
-        <Box
-          sx={{
-            bgcolor: 'white',
-            borderRadius: 3,
-            p: 5,
-            width: 450,
-            outline: 'none',
-            textAlign: 'center',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-          }}
-        >
+      <Modal open={networkIssue && !vpnDetected && !multipleIpDetected && !hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}>
+        <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
           <WarningRoundedIcon sx={{ fontSize: 60, color: '#EF4444', mb: 1 }} />
-          <Typography variant="h5" fontWeight={700} mb={2} color="error">
-            Connection Lost
-          </Typography>
+          <Typography variant="h5" fontWeight={700} mb={2} color="error">Connection Lost</Typography>
           <Typography variant="body2" color="textSecondary" mb={3}>
-            Your exam is paused. We detected a network disconnect. Please reconnect to your original
-            network to continue.
+            Your exam is paused. We detected a network disconnect. Please reconnect to your original network to continue.
           </Typography>
           <CircularProgress size={30} sx={{ mt: 2 }} />
         </Box>
       </Modal>
 
-      <Modal
-        open={!isFullscreen && !networkIssue && !vpnDetected && !multipleIpDetected}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backdropFilter: 'blur(3px)',
-          zIndex: 99999,
-        }}
-      >
-        <Box
-          sx={{
-            bgcolor: 'white',
-            borderRadius: 3,
-            p: 5,
-            width: 450,
-            outline: 'none',
-            textAlign: 'center',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
-          }}
-        >
+      <Modal open={!isFullscreen && !networkIssue && !vpnDetected && !multipleIpDetected && !hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)', zIndex: 99999 }}>
+        <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
           <WarningRoundedIcon sx={{ fontSize: 60, color: '#FACC15', mb: 1 }} />
-          <Typography variant="h5" fontWeight={700} mb={2}>
-            Fullscreen Required
-          </Typography>
+          <Typography variant="h5" fontWeight={700} mb={2}>Fullscreen Required</Typography>
           <Typography variant="body2" color="textSecondary" mb={3} px={2}>
             This assessment requires your browser window to be in full screen mode.
           </Typography>
-          <Button
-            variant="contained"
-            fullWidth
-            sx={{
-              bgcolor: '#4F46E5',
-              '&:hover': { bgcolor: '#4338CA' },
-              mb: 4,
-              py: 1.5,
-              borderRadius: 1.5,
-            }}
-            onClick={handleStartExam}
-          >
+          <Button variant="contained" fullWidth sx={{ bgcolor: '#4F46E5', '&:hover': { bgcolor: '#4338CA' }, mb: 4, py: 1.5, borderRadius: 1.5 }} onClick={handleStartExam}>
             Enter Fullscreen
           </Button>
-        </Box>
-      </Modal>
-
-      {/* --- SECTION TRANSITION MODAL --- */}
-      <Modal
-        open={sectionSwitchModal}
-        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}
-      >
-        <Box
-          sx={{
-            bgcolor: 'white',
-            borderRadius: 3,
-            p: 5,
-            width: 450,
-            outline: 'none',
-            textAlign: 'center',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-          }}
-        >
-          <WarningRoundedIcon sx={{ fontSize: 60, color: '#FACC15', mb: 1 }} />
-          <Typography variant="h5" fontWeight={700} mb={2}>
-            Proceed to Next Section?
-          </Typography>
-          <Typography variant="body2" color="textSecondary" mb={4}>
-            Are you sure you want to complete this section? You will not be able to return to these
-            questions once you proceed.
-          </Typography>
-          <Box display="flex" gap={2} justifyContent="center">
-            <Button
-              variant="outlined"
-              onClick={() => setSectionSwitchModal(false)}
-              sx={{ px: 4, borderRadius: 1.5, color: 'text.secondary', borderColor: '#E2E8F0' }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="contained"
-              onClick={confirmSectionSwitch}
-              sx={{ px: 4, borderRadius: 1.5, bgcolor: '#4F46E5' }}
-            >
-              Proceed
-            </Button>
-          </Box>
         </Box>
       </Modal>
 
@@ -923,80 +876,40 @@ const TestPage = () => {
           {/* DYNAMIC SCREEN DARKENING OVERLAY */}
           <Box
             sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              bgcolor: `rgba(0,0,0,${darknessLevel})`,
-              opacity: isSuspiciousEnv ? 1 : 0,
+              position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+              bgcolor: `rgba(0,0,0,${darknessLevel})`, opacity: isSuspiciousEnv ? 1 : 0,
               pointerEvents: isSuspiciousEnv ? 'all' : 'none',
               transition: 'background-color 0.5s ease-in-out, opacity 0.5s ease-in-out',
-              zIndex: 9998,
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
+              zIndex: 9998, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
             }}
           >
             <WarningRoundedIcon sx={{ fontSize: 100, color: '#EF4444', mb: 2 }} />
-            <Typography variant="h2" color="#EF4444" fontWeight="bold">
-              Suspicious Environment
-            </Typography>
-            <Typography variant="h5" color="white" mt={2}>
-              Prohibited object detected.
-            </Typography>
-            <Typography variant="body1" color="gray" mt={1}>
-              The exam is paused. Please remove the object immediately.
-            </Typography>
+            <Typography variant="h2" color="#EF4444" fontWeight="bold">Suspicious Environment</Typography>
+            <Typography variant="h5" color="white" mt={2}>Prohibited object detected.</Typography>
+            <Typography variant="body1" color="gray" mt={1}>The exam is paused. Please remove the object immediately.</Typography>
           </Box>
 
-          {/* MAIN UI COMPONENT WITH DYNAMIC BLUR */}
           <Box
             sx={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              filter: `blur(${blurIntensity}px)`,
-              transition: 'filter 0.5s ease-in-out',
+              flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              filter: `blur(${blurIntensity}px)`, transition: 'filter 0.5s ease-in-out',
               pointerEvents: isSuspiciousEnv ? 'none' : 'auto',
             }}
           >
             {/* HEADER */}
             <Box
               sx={{
-                height: 80,
-                bgcolor: '#6B879E',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                px: 4,
-                borderBottomLeftRadius: 24,
-                borderBottomRightRadius: 24,
-                zIndex: 10,
+                height: 80, bgcolor: '#6B879E', display: 'flex', justifyContent: 'space-between',
+                alignItems: 'center', px: 4, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, zIndex: 10,
               }}
             >
               <Box display="flex" alignItems="center" gap={2}>
-                <Box
-                  sx={{
-                    bgcolor: 'white',
-                    borderRadius: 2,
-                    p: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
+                <Box sx={{ bgcolor: 'white', borderRadius: 2, p: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <MonitorHeartIcon sx={{ color: '#002B5B' }} />
                 </Box>
                 <Box color="white">
-                  <Typography variant="h6" fontWeight={700} lineHeight={1}>
-                    Procto.ai
-                  </Typography>
-                  <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                    Advanced proctoring System
-                  </Typography>
+                  <Typography variant="h6" fontWeight={700} lineHeight={1}>Procto.ai</Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8 }}>Advanced proctoring System</Typography>
                 </Box>
               </Box>
 
@@ -1004,57 +917,21 @@ const TestPage = () => {
                 <Button
                   variant="contained"
                   onClick={() => handleSectionChangeAttempt('submit')}
-                  sx={{
-                    bgcolor: '#FDBA74',
-                    color: 'black',
-                    fontWeight: 'bold',
-                    borderRadius: 2,
-                    px: 3,
-                    '&:hover': { bgcolor: '#F9A826' },
-                  }}
+                  sx={{ bgcolor: '#FDBA74', color: 'black', fontWeight: 'bold', borderRadius: 2, px: 3, '&:hover': { bgcolor: '#F9A826' } }}
                 >
-                  Finish Test
+                  Finish MCQ Section
                 </Button>
 
-                {/* Circular Webcam with LIVE Tag */}
-                <Box
-                  sx={{
-                    width: 60,
-                    height: 60,
-                    borderRadius: '50%',
-                    border: '3px solid white',
-                    bgcolor: '#ccc',
-                    position: 'relative',
-                  }}
-                >
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      bottom: -8,
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      bgcolor: 'red',
-                      color: 'white',
-                      fontSize: '9px',
-                      fontWeight: 'bold',
-                      px: 0.6,
-                      py: 0.2,
-                      borderRadius: 1,
-                      zIndex: 20,
-                    }}
-                  >
+                <Box sx={{ width: 60, height: 60, borderRadius: '50%', border: '3px solid white', bgcolor: '#ccc', position: 'relative' }}>
+                  <Box sx={{ position: 'absolute', bottom: -8, left: '50%', transform: 'translateX(-50%)', bgcolor: 'red', color: 'white', fontSize: '9px', fontWeight: 'bold', px: 0.6, py: 0.2, borderRadius: 1, zIndex: 20 }}>
                     LIVE
                   </Box>
-                  <Box
-                    sx={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden' }}
-                  >
+                  <Box sx={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden' }}>
                     <WebCam
                       cheatingLog={cheatingLog}
                       updateCheatingLog={updateCheatingLog}
                       onObjectDetected={(item, scale) => handleObjectDetection(item, scale)}
-                      onFaceLost={() =>
-                        registerViolation('FACE_LOST', 'Face not visible', 'high', 20)
-                      }
+                      onFaceLost={() => registerViolation('FACE_LOST', 'Face not visible or camera blocked', 'high', 20)}
                     />
                   </Box>
                 </Box>
@@ -1063,28 +940,28 @@ const TestPage = () => {
 
             {/* MAIN CONTENT AREA */}
             <Box sx={{ flex: 1, display: 'flex', gap: 3, p: 3, overflow: 'hidden' }}>
+              
               {/* LEFT PANE - Question Area */}
-              <Box
-                sx={{
-                  flex: 7,
-                  bgcolor: 'white',
-                  borderRadius: 4,
-                  p: 4,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  position: 'relative',
-                  overflowY: 'auto',
-                }}
-              >
+              <Box sx={{ flex: 7, bgcolor: 'white', borderRadius: 4, p: 4, display: 'flex', flexDirection: 'column', position: 'relative', overflowY: 'auto' }}>
                 <Box display="flex" justifyContent="space-between" mb={4}>
-                  <Typography variant="h6">Question {currentQuestionIdx + 1}</Typography>
-                  <Typography
-                    variant="body1"
-                    sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                  >
+                  <Typography variant="h6">
+                    Question {currentQuestionIdx + 1}
+                  </Typography>
+                  <Typography variant="body1" sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
                     Revise Later
                   </Typography>
                 </Box>
+
+                {/* Display Question Image if it exists */}
+                {currentQ.image && (
+                  <Box mb={3} textAlign="center">
+                    <img 
+                      src={currentQ.image} 
+                      alt="Question context" 
+                      style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', border: '1px solid #E2E8F0' }} 
+                    />
+                  </Box>
+                )}
 
                 <Typography variant="h5" fontWeight={400} mb={6} sx={{ maxWidth: '80%' }}>
                   {displayQuestionText}
@@ -1092,35 +969,23 @@ const TestPage = () => {
 
                 <Box display="flex" justifyContent="space-between" mb={2}>
                   <Typography variant="body1">Choose the best option</Typography>
-                  <Typography
-                    variant="body1"
-                    sx={{ cursor: 'pointer', fontWeight: 500 }}
-                    onClick={handleClearOption}
-                  >
+                  <Typography variant="body1" sx={{ cursor: 'pointer', fontWeight: 500 }} onClick={handleClearOption}>
                     Clear
                   </Typography>
                 </Box>
 
+                {/* DYNAMIC QUESTION RENDERER FOR MCQs ONLY */}
                 <Box display="flex" flexDirection="column" gap={2} mb={4}>
                   {currentOptions.map((opt, i) => {
-                    const optionText =
-                      typeof opt === 'object'
-                        ? opt.optionText || opt.option || opt.text || opt.value
-                        : opt;
+                    const optionText = typeof opt === 'object' ? opt.optionText || opt.option || opt.text || opt.value : opt;
                     const isSelected = answers[currentQuestionIdx] === i;
                     return (
                       <Box
                         key={i}
-                        onClick={() => handleSelectOption(i)}
+                        onClick={() => handleAnswerChange(i)}
                         sx={{
-                          p: 2,
-                          border: '1px solid',
-                          borderColor: isSelected ? '#10B981' : '#E0E0E0',
-                          borderRadius: 2,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          textAlign: 'center',
-                          bgcolor: isSelected ? '#F0FDF4' : 'transparent',
+                          p: 2, border: '1px solid', borderColor: isSelected ? '#10B981' : '#E0E0E0', borderRadius: 2,
+                          cursor: 'pointer', transition: 'all 0.2s', textAlign: 'center', bgcolor: isSelected ? '#F0FDF4' : 'transparent',
                           '&:hover': { borderColor: '#10B981' },
                         }}
                       >
@@ -1133,28 +998,13 @@ const TestPage = () => {
                 </Box>
 
                 <Box sx={{ mt: 'auto', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    sx={{ bgcolor: '#0EA5E9', borderRadius: 1.5, textTransform: 'none', px: 4 }}
-                  >
+                  <Button variant="contained" sx={{ bgcolor: '#0EA5E9', borderRadius: 1.5, textTransform: 'none', px: 4 }}>
                     Save Draft
                   </Button>
-
-                  {/* DYNAMIC NEXT/SUBMIT BUTTON */}
                   <Button
                     variant="contained"
-                    sx={{
-                      bgcolor: '#22C55E',
-                      borderRadius: 1.5,
-                      textTransform: 'none',
-                      px: 4,
-                      '&:hover': { bgcolor: '#16A34A' },
-                    }}
-                    onClick={
-                      isLastQuestion
-                        ? () => handleSectionChangeAttempt('coding')
-                        : handleNextQuestion
-                    }
+                    sx={{ bgcolor: '#22C55E', borderRadius: 1.5, textTransform: 'none', px: 4, '&:hover': { bgcolor: '#16A34A' } }}
+                    onClick={isLastQuestion ? () => handleSectionChangeAttempt('coding') : handleNextQuestion}
                   >
                     {isLastQuestion ? 'Proceed to Coding' : 'Next Question'}
                   </Button>
@@ -1162,65 +1012,25 @@ const TestPage = () => {
               </Box>
 
               {/* RIGHT PANE - Sidebar */}
-              <Box
-                sx={{
-                  flex: 3,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Timers & Palette Card */}
+              <Box sx={{ flex: 3, display: 'flex', flexDirection: 'column', gap: 3, overflow: 'hidden' }}>
                 <Box sx={{ bgcolor: 'white', borderRadius: 4, p: 3, flexShrink: 0 }}>
                   <Box display="flex" gap={2} mb={3}>
                     <Box flex={1}>
-                      <Typography variant="caption" fontWeight="bold">
-                        Test Timer
-                      </Typography>
-                      <Box
-                        sx={{
-                          bgcolor: '#E5E7EB',
-                          borderRadius: 1.5,
-                          py: 1,
-                          textAlign: 'center',
-                          mt: 0.5,
-                        }}
-                      >
-                        <Typography fontWeight="bold">
-                          {formatTime(examDurationInSeconds)}
-                        </Typography>
+                      <Typography variant="caption" fontWeight="bold">Test Timer</Typography>
+                      <Box sx={{ bgcolor: '#E5E7EB', borderRadius: 1.5, py: 1, textAlign: 'center', mt: 0.5 }}>
+                        <Typography fontWeight="bold">{formatTime(examDurationInSeconds)}</Typography>
                       </Box>
                     </Box>
                     <Box flex={1}>
-                      <Typography variant="caption" fontWeight="bold">
-                        Section Timer
-                      </Typography>
-                      <Box
-                        sx={{
-                          bgcolor: '#E5E7EB',
-                          borderRadius: 1.5,
-                          py: 1,
-                          textAlign: 'center',
-                          mt: 0.5,
-                        }}
-                      >
-                        <Typography fontWeight="bold">
-                          {formatTime(examDurationInSeconds)}
-                        </Typography>
+                      <Typography variant="caption" fontWeight="bold">Status</Typography>
+                      <Box sx={{ bgcolor: '#E5E7EB', borderRadius: 1.5, py: 1, textAlign: 'center', mt: 0.5 }}>
+                        <Typography fontWeight="bold">Active</Typography>
                       </Box>
                     </Box>
                   </Box>
 
-                  {/* SECTION CHOOSER DROPDOWN */}
                   <Box mb={3}>
-                    <Typography
-                      variant="caption"
-                      fontWeight="bold"
-                      color="textSecondary"
-                      mb={0.5}
-                      display="block"
-                    >
+                    <Typography variant="caption" fontWeight="bold" color="textSecondary" mb={0.5} display="block">
                       Current Section
                     </Typography>
                     <FormControl size="small" fullWidth>
@@ -1230,37 +1040,26 @@ const TestPage = () => {
                           setCurrentSection(e.target.value);
                           handleSectionChangeAttempt(e.target.value);
                         }}
-                        sx={{
-                          bgcolor: '#F8FAFC',
-                          borderRadius: 1.5,
-                          '& fieldset': { borderColor: '#E2E8F0' },
-                          fontSize: 14,
-                        }}
+                        sx={{ bgcolor: '#F8FAFC', borderRadius: 1.5, '& fieldset': { borderColor: '#E2E8F0' }, fontSize: 14 }}
                       >
-                        <MenuItem value="mcq" disabled>
-                          Multiple Choice (Completed)
-                        </MenuItem>
-                        <MenuItem value="coding">Coding Questions</MenuItem>
+                        <MenuItem value="mcq">Multiple Choice</MenuItem>
+                        <MenuItem value="coding">Jump to Coding</MenuItem>
                         <MenuItem value="submit">Final Submission</MenuItem>
                       </Select>
                     </FormControl>
                   </Box>
 
                   <Box mb={2} display="flex" alignItems="center" gap={1}>
-                    <Typography
-                      variant="caption"
-                      sx={{ bgcolor: '#E5E7EB', px: 1, py: 0.2, borderRadius: 1 }}
-                    >
+                    <Typography variant="caption" sx={{ bgcolor: '#E5E7EB', px: 1, py: 0.2, borderRadius: 1 }}>
                       Attempted {attemptedCount}/{questions.length}
                     </Typography>
                   </Box>
 
                   {/* QUESTION PALETTE */}
-                  <Box display="flex" flexWrap="wrap" gap={1.5}>
+                  <Box display="flex" flexWrap="wrap" gap={1.5} sx={{ maxHeight: 150, overflowY: 'auto' }}>
                     {questions.map((_, i) => {
                       let bgColor = '#EF4444'; // Red (Not Visited)
-                      if (answers[i] !== undefined)
-                        bgColor = '#22C55E'; // Green (Answered)
+                      if (answers[i] !== undefined && answers[i] !== '') bgColor = '#22C55E'; // Green (Answered)
                       else if (visitedQuestions.has(i)) bgColor = '#FACC15'; // Yellow (Visited)
 
                       return (
@@ -1268,23 +1067,11 @@ const TestPage = () => {
                           key={i}
                           onClick={() => handlePaletteClick(i)}
                           sx={{
-                            width: 40,
-                            height: 40,
-                            bgcolor: bgColor,
-                            borderRadius: 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            border: currentQuestionIdx === i ? '2px solid black' : 'none',
+                            width: 40, height: 40, bgcolor: bgColor, borderRadius: 1, display: 'flex', alignItems: 'center',
+                            justifyContent: 'center', cursor: 'pointer', border: currentQuestionIdx === i ? '2px solid black' : 'none',
                           }}
                         >
-                          <Typography
-                            fontWeight="bold"
-                            color={bgColor === '#FACC15' ? 'black' : 'white'}
-                          >
-                            {i + 1}
-                          </Typography>
+                          <Typography fontWeight="bold" color={bgColor === '#FACC15' ? 'black' : 'white'}>{i + 1}</Typography>
                         </Box>
                       );
                     })}
@@ -1295,74 +1082,38 @@ const TestPage = () => {
                 <Box sx={{ bgcolor: 'white', borderRadius: 4, p: 3, flexShrink: 0 }}>
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                     <Box display="flex" alignItems="center" gap={1}>
-                      <Typography fontWeight={600} fontSize={18}>
-                        Trust indicator
-                      </Typography>
+                      <Typography fontWeight={600} fontSize={18}>Trust indicator</Typography>
                       <HealthAndSafetyIcon sx={{ color: getTrustColor() }} />
                     </Box>
-                    <Typography fontSize={12} color={getTrustColor()} fontWeight="bold">
-                      {trustScore}% integrity
-                    </Typography>
+                    <Typography fontSize={12} color={getTrustColor()} fontWeight="bold">{trustScore}% integrity</Typography>
                   </Box>
                   <LinearProgress
                     variant="determinate"
                     value={trustScore}
                     sx={{
-                      height: 12,
-                      borderRadius: 10,
-                      bgcolor: '#E5E7EB',
-                      '& .MuiLinearProgress-bar': {
-                        bgcolor: getTrustColor(),
-                        borderRadius: 10,
-                        transition: 'background-color 0.5s ease',
-                      },
+                      height: 12, borderRadius: 10, bgcolor: '#E5E7EB',
+                      '& .MuiLinearProgress-bar': { bgcolor: getTrustColor(), borderRadius: 10, transition: 'background-color 0.5s ease' },
                     }}
                   />
                 </Box>
 
-                {/* Session Events Logger (SCROLLING ONLY THIS PART) */}
-                <Box
-                  sx={{
-                    bgcolor: 'white',
-                    borderRadius: 4,
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                  }}
-                >
+                {/* Session Events Logger */}
+                <Box sx={{ bgcolor: 'white', borderRadius: 4, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                   <Box p={3} pb={2} display="flex" alignItems="center" gap={1}>
                     <ErrorOutlineIcon sx={{ color: '#F43F5E' }} />
-                    <Typography fontWeight={600} fontSize={18}>
-                      Session Events
-                    </Typography>
+                    <Typography fontWeight={600} fontSize={18}>Session Events</Typography>
                   </Box>
-
                   <Box sx={{ px: 3, pb: 3, flex: 1, overflowY: 'auto' }}>
                     {sessionEvents.length === 0 ? (
-                      <Typography variant="body2" color="textSecondary">
-                        No anomalies detected.
-                      </Typography>
+                      <Typography variant="body2" color="textSecondary">No anomalies detected.</Typography>
                     ) : (
                       sessionEvents.map((evt, i) => (
                         <Box key={i} sx={{ bgcolor: '#FECDD3', borderRadius: 3, p: 2, mb: 2 }}>
-                          <Typography
-                            color="#BE123C"
-                            fontWeight="bold"
-                            display="flex"
-                            alignItems="center"
-                            gap={0.5}
-                            mb={1}
-                          >
-                            <ErrorOutlineIcon fontSize="small" />{' '}
-                            {evt.type === 'FACE_LOST' ? 'Face Removed' : evt.type}
+                          <Typography color="#BE123C" fontWeight="bold" display="flex" alignItems="center" gap={0.5} mb={1}>
+                            <ErrorOutlineIcon fontSize="small" /> {evt.type === 'FACE_LOST' ? 'Face Removed' : evt.type}
                           </Typography>
-                          <Typography fontSize={12} color="#BE123C" mb={1}>
-                            {evt.message}
-                          </Typography>
-                          <Typography fontSize={10} color="#BE123C" textAlign="right">
-                            {evt.time}
-                          </Typography>
+                          <Typography fontSize={12} color="#BE123C" mb={1}>{evt.message}</Typography>
+                          <Typography fontSize={10} color="#BE123C" textAlign="right">{evt.time}</Typography>
                         </Box>
                       ))
                     )}

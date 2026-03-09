@@ -69,8 +69,8 @@ const AddQuestionForm = () => {
   }, [examsData, selectedExamId]);
 
   const handleOptionChange = (index) => {
-    const updatedCorrectOptions = [...correctOptions];
-    updatedCorrectOptions[index] = !updatedCorrectOptions[index];
+    const updatedCorrectOptions = [false, false, false, false];
+    updatedCorrectOptions[index] = true;
     setCorrectOptions(updatedCorrectOptions);
   };
 
@@ -100,18 +100,21 @@ const AddQuestionForm = () => {
     }
 
     const questionPayload = {
-      question: newQuestion,
-      options: newOptions.map((option, index) => ({
-        optionText: option,
-        isCorrect: correctOptions[index],
-      })),
       examId: selectedExamId,
+      section: "aptitude",   // MCQ questions belong to aptitude section
+      question: newQuestion,
+      options: newOptions.map((option) => option.trim()),
+      correctAnswer: correctOptions.findIndex((val) => val === true),
+      description: "",
+      image: "",
+      testCases: [],
     };
 
     try {
       const res = await createQuestion(questionPayload).unwrap();
       toast.success('✨ Question added successfully!');
 
+      // Add the newly created question (from backend response) to the preview
       setQuestions((prev) => [...prev, res]);
 
       // Reset form for the next question
@@ -262,34 +265,42 @@ const AddQuestionForm = () => {
                           Q{qIndex + 1}. {questionObj.question}
                         </Typography>
                         <Grid container spacing={1}>
-                          {questionObj.options.map((opt, oIndex) => (
-                            <Grid item xs={12} sm={6} key={oIndex}>
-                              <Box
-                                display="flex"
-                                alignItems="center"
-                                gap={1}
-                                p={1}
-                                borderRadius={1}
-                                bgcolor={
-                                  opt.isCorrect 
-                                    ? (isDark ? 'rgba(22, 101, 52, 0.3)' : '#DCFCE7') 
-                                    : (isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC')
-                                }
-                              >
-                                {opt.isCorrect ? (
-                                  <CheckCircleIcon fontSize="small" sx={{ color: isDark ? '#34D399' : 'success.main' }} />
-                                ) : (
-                                  <RadioButtonUncheckedIcon fontSize="small" sx={{ color: isDark ? '#475569' : 'disabled' }} />
-                                )}
-                                <Typography
-                                  variant="body2"
-                                  sx={{ color: opt.isCorrect ? (isDark ? '#34D399' : 'success.main') : (isDark ? '#94A3B8' : 'textPrimary') }}
+                          {questionObj.options.map((opt, oIndex) => {
+                            // FIX: Safely determine correctness and text whether `opt` is a string or an object
+                            const isCorrect = typeof opt === 'object' && opt.isCorrect !== undefined 
+                              ? opt.isCorrect 
+                              : questionObj.correctAnswer === oIndex;
+                            const optionText = typeof opt === 'object' ? opt.optionText : opt;
+
+                            return (
+                              <Grid item xs={12} sm={6} key={oIndex}>
+                                <Box
+                                  display="flex"
+                                  alignItems="center"
+                                  gap={1}
+                                  p={1}
+                                  borderRadius={1}
+                                  bgcolor={
+                                    isCorrect 
+                                      ? (isDark ? 'rgba(22, 101, 52, 0.3)' : '#DCFCE7') 
+                                      : (isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC')
+                                  }
                                 >
-                                  {opt.optionText}
-                                </Typography>
-                              </Box>
-                            </Grid>
-                          ))}
+                                  {isCorrect ? (
+                                    <CheckCircleIcon fontSize="small" sx={{ color: isDark ? '#34D399' : 'success.main' }} />
+                                  ) : (
+                                    <RadioButtonUncheckedIcon fontSize="small" sx={{ color: isDark ? '#475569' : 'disabled' }} />
+                                  )}
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ color: isCorrect ? (isDark ? '#34D399' : 'success.main') : (isDark ? '#94A3B8' : 'textPrimary') }}
+                                  >
+                                    {optionText}
+                                  </Typography>
+                                </Box>
+                              </Grid>
+                            );
+                          })}
                         </Grid>
                       </Paper>
                     ))}
