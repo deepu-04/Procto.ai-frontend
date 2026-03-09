@@ -37,7 +37,7 @@ export default function InterviewLoader() {
         animate={{ opacity: 1 }}
         className="text-2xl font-bold text-slate-800"
       >
-        Gemini AI is crafting your interview...
+        Procto.Ai is crafting your interview...
       </motion.h2>
       <p className="text-slate-400 mt-2 max-w-xs">
         Analyzing job description and tailoring behavioral questions.

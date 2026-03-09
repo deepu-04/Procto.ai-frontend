@@ -453,7 +453,7 @@ export default function TestPage() {
     if (!appsPass) { setIsDiagnosing(false); return; }
 
     setIsDiagnosing(false);
-    setTimeout(() => setShowSuccessPopup(true), 500);
+    setTimeout(() => setShowSuccessPopup(true), 500); // Triggers the popup safely
   };
 
   // Regular interval check as a fallback incase the events drop
@@ -515,21 +515,16 @@ export default function TestPage() {
 
   return (
     <PageContainer title="System Checks" description="Preparing environment">
-      {/* =========================================================
-        CRITICAL FIX: OVERLAY BOX TO STRICTLY HIDE THE NAVBAR
-        position: 'fixed' completely covers standard layouts
-        =========================================================
-      */}
       <Box
         sx={{
-          position: 'fixed',
+          position: 'fixed', // This strictly hides the navbar by overtaking the full screen
           top: 0,
           left: 0,
           right: 0,
           bottom: 0,
           width: '100vw',
           height: '100vh',
-          zIndex: 999999, // Super high z-index to cover Sidebars and Navbars
+          zIndex: 9999, 
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -804,10 +799,12 @@ export default function TestPage() {
         </Box>
 
         {/* ================= FINAL SUCCESS POPUP ================= */}
+        {/* ADDED CRITICAL Z-INDEX HERE */}
         <Dialog
           open={showSuccessPopup}
           maxWidth="xs"
           fullWidth
+          sx={{ zIndex: 9999999 }} // <--- THIS ENSURES IT OVERRIDES THE MAIN BOX
           PaperProps={{
             sx: {
               borderRadius: '24px',
@@ -870,8 +867,10 @@ export default function TestPage() {
         </Dialog>
 
         {/* ================= HARDWARE ERROR POPUP ================= */}
+        {/* ADDED CRITICAL Z-INDEX HERE */}
         <Dialog
           open={hardwareIssue.missing}
+          sx={{ zIndex: 9999999 }} // <--- THIS ENSURES IT OVERRIDES THE MAIN BOX
           PaperProps={{
             sx: {
               borderRadius: '24px',
@@ -907,16 +906,17 @@ export default function TestPage() {
         </Dialog>
 
         {/* ================= MOBILE RESTRICTION POPUP ================= */}
+        {/* ADDED CRITICAL Z-INDEX HERE */}
         <Dialog
           open={isMobileRestricted}
           fullScreen
+          sx={{ zIndex: 9999999 }} // <--- THIS ENSURES IT OVERRIDES THE MAIN BOX
           PaperProps={{
             sx: {
               bgcolor: isDark ? '#000000' : '#F8FAFC',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              zIndex: 99999 
             }
           }}
         >
