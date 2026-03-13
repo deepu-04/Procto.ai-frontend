@@ -24,7 +24,7 @@ import { useSelector } from 'react-redux';
 // IMPORTANT: It is highly recommended to use environment variables in production
 // Example: const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIza...";
 // =========================================================================
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyBwMUMjrKlO0lhz2UEYFsJLqYxAeLsDzBg";
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyDLSs3rlsD2Y4E1pnnvAh3DWRRzw_cKlT8";
 
 // =========================================================================
 // AI CHATBOT WIDGET COMPONENT (iOS THEME)
