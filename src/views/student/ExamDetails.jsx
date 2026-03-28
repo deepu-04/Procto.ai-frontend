@@ -25,6 +25,7 @@ import {
   IconLoader2,
   IconShieldCheck,
   IconScanEye,
+  IconCamera,
 } from '@tabler/icons-react';
 import MobileOffIcon from '@mui/icons-material/MobileOff';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
@@ -170,9 +171,13 @@ export default function TestPage() {
   // Independent stream refs for precise hardware tracking
   const videoStreamRef = useRef(null);
   const audioStreamRef = useRef(null);
+  const dialogVideoRef = useRef(null); // Ref for the capture video element
 
   const [isDark, setIsDark] = useState(false);
   const [isMobileRestricted, setIsMobileRestricted] = useState(false);
+
+  // Verification Capture States
+  const [capturedImage, setCapturedImage] = useState(null);
 
   const [checks, setChecks] = useState({
     camera: 'idle',
@@ -246,6 +251,13 @@ export default function TestPage() {
       if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  /* --- Stream Attachment for Image Capture --- */
+  useEffect(() => {
+    if (showSuccessPopup && !capturedImage && dialogVideoRef.current && videoStreamRef.current) {
+      dialogVideoRef.current.srcObject = videoStreamRef.current;
+    }
+  }, [showSuccessPopup, capturedImage]);
 
   /* --- Global Hardware Listener (Catches Keyboard Mutes) --- */
   const bindHardwareListeners = useCallback((track, type) => {
@@ -441,6 +453,8 @@ export default function TestPage() {
   const runAllDiagnostics = async () => {
     setIsDiagnosing(true);
     setStartInput('');
+    setCapturedImage(null); // Reset capture state on new run
+    sessionStorage.removeItem('student_verification_image');
     setChecks({ camera: 'idle', audio: 'idle', network: 'idle', apps: 'idle' });
 
     const hwPass = await checkHardware();
@@ -502,6 +516,28 @@ export default function TestPage() {
       clearInterval(interval);
     };
   }, [monitorHardwareDevices]);
+
+  /* --- Image Capture Handlers --- */
+  const handleCaptureImage = () => {
+    if (dialogVideoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = dialogVideoRef.current.videoWidth || 640;
+      canvas.height = dialogVideoRef.current.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      // Draw the video frame to canvas
+      ctx.drawImage(dialogVideoRef.current, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+      
+      setCapturedImage(dataUrl);
+      sessionStorage.setItem('student_verification_image', dataUrl);
+      toast.success("Image captured successfully!");
+    }
+  };
+
+  const handleRetakeImage = () => {
+    setCapturedImage(null);
+    sessionStorage.removeItem('student_verification_image');
+  };
 
   const startExam = async () => {
     try {
@@ -798,13 +834,12 @@ export default function TestPage() {
           </Grid>
         </Box>
 
-        {/* ================= FINAL SUCCESS POPUP ================= */}
-        {/* ADDED CRITICAL Z-INDEX HERE */}
+        {/* ================= FINAL SUCCESS & CAPTURE POPUP ================= */}
         <Dialog
           open={showSuccessPopup}
-          maxWidth="xs"
+          maxWidth="sm"
           fullWidth
-          sx={{ zIndex: 9999999 }} // <--- THIS ENSURES IT OVERRIDES THE MAIN BOX
+          sx={{ zIndex: 9999999 }} // Ensures it overrides the main box
           PaperProps={{
             sx: {
               borderRadius: '24px',
@@ -814,10 +849,10 @@ export default function TestPage() {
             },
           }}
         >
-          <Box sx={{ bgcolor: '#10B981', height: 140, borderTopLeftRadius: '24px', borderTopRightRadius: '24px', position: 'relative' }}>
+          <Box sx={{ bgcolor: '#10B981', height: 100, borderTopLeftRadius: '24px', borderTopRightRadius: '24px', position: 'relative' }}>
             <Box sx={{ position: 'absolute', top: 20, left: '20%', width: 6, height: 6, bgcolor: '#fff', borderRadius: '50%', opacity: 0.8 }} />
             <Box sx={{ position: 'absolute', top: 40, right: '25%', width: 8, height: 8, bgcolor: '#fff', borderRadius: '50%', opacity: 0.9 }} />
-            <Box sx={{ position: 'absolute', top: 70, left: '10%', width: 4, height: 4, bgcolor: '#fff', borderRadius: '50%', opacity: 0.6 }} />
+            <Box sx={{ position: 'absolute', top: 60, left: '10%', width: 4, height: 4, bgcolor: '#fff', borderRadius: '50%', opacity: 0.6 }} />
 
             <Box sx={{ position: 'absolute', bottom: -40, left: '50%', transform: 'translateX(-50%)', width: 80, height: 80, bgcolor: isDark ? '#0F172A' : '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 25px rgba(16, 185, 129, 0.3)' }}>
               <IconShieldCheck size={44} color="#10B981" />
@@ -826,51 +861,109 @@ export default function TestPage() {
 
           <DialogContent sx={{ pt: 7, pb: 4, px: 4, textAlign: 'center' }}>
             <Typography variant="h5" fontWeight="900" color={isDark ? 'white' : '#1E293B'} gutterBottom>
-              Environment Secured!
-            </Typography>
-            <Typography variant="body2" color={isDark ? '#94A3B8' : 'textSecondary'} mb={4} lineHeight={1.6}>
-              You have successfully passed all pre-examination checks. To proceed into the secure exam browser, please type <b>"start"</b> below.
+              Identity Verification
             </Typography>
 
-            <TextField
-              fullWidth
-              placeholder="Type 'start'"
-              variant="outlined"
-              value={startInput}
-              onChange={(e) => setStartInput(e.target.value)}
-              sx={{
-                mb: 3,
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: '12px',
-                  bgcolor: isDark ? 'rgba(255,255,255,0.05)' : '#F8FAFC',
-                  color: isDark ? 'white' : 'black',
-                  textAlign: 'center',
-                  input: { textAlign: 'center', fontWeight: 'bold', fontSize: '1.1rem', letterSpacing: 1 },
-                },
-              }}
-            />
+            {!capturedImage ? (
+              <Box display="flex" flexDirection="column" alignItems="center" mb={1}>
+                <Typography variant="body2" color={isDark ? '#94A3B8' : 'textSecondary'} mb={3} lineHeight={1.6}>
+                  Please position your face clearly in the frame and capture a photo to verify your identity.
+                </Typography>
+                
+                <Box
+                  sx={{
+                    width: '100%',
+                    maxWidth: 320,
+                    height: 240,
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    bgcolor: 'black',
+                    mb: 3,
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                  }}
+                >
+                  <video
+                    ref={dialogVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
+                  />
+                </Box>
+                
+                <Button
+                  variant="contained"
+                  onClick={handleCaptureImage}
+                  startIcon={<IconCamera />}
+                  sx={{ py: 1.5, px: 4, borderRadius: '12px', fontWeight: 'bold', bgcolor: '#3B82F6', '&:hover': { bgcolor: '#2563EB' } }}
+                >
+                  Capture Photo
+                </Button>
+              </Box>
+            ) : (
+              <Box display="flex" flexDirection="column" alignItems="center" mb={1}>
+                <Box
+                  sx={{
+                    width: 160,
+                    height: 120,
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    border: '3px solid #10B981',
+                    mb: 1,
+                    boxShadow: '0 10px 25px rgba(16, 185, 129, 0.3)',
+                  }}
+                >
+                  <img src={capturedImage} alt="Verification" style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+                </Box>
+                
+                <Button variant="text" size="small" onClick={handleRetakeImage} sx={{ mb: 3, fontWeight: 'bold', color: '#64748B' }}>
+                  Retake Photo
+                </Button>
 
-            <Button
-              fullWidth
-              variant="contained"
-              onClick={startExam}
-              disabled={startInput.trim().toLowerCase() !== 'start'}
-              sx={{
-                py: 1.8, borderRadius: '14px', fontWeight: '800', fontSize: '1rem', bgcolor: '#10B981',
-                textTransform: 'none', boxShadow: startInput.trim().toLowerCase() === 'start' ? '0 8px 20px rgba(16, 185, 129, 0.4)' : 'none',
-                '&:hover': { bgcolor: '#059669' },
-              }}
-            >
-              Start Exam Now
-            </Button>
+                <Typography variant="body2" color={isDark ? '#94A3B8' : 'textSecondary'} mb={3} lineHeight={1.6}>
+                  Verification successful! To proceed into the secure exam browser, please type <b>"start"</b> below.
+                </Typography>
+
+                <TextField
+                  fullWidth
+                  placeholder="Type 'start'"
+                  variant="outlined"
+                  value={startInput}
+                  onChange={(e) => setStartInput(e.target.value)}
+                  sx={{
+                    mb: 3,
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: '12px',
+                      bgcolor: isDark ? 'rgba(255,255,255,0.05)' : '#F8FAFC',
+                      color: isDark ? 'white' : 'black',
+                      textAlign: 'center',
+                      input: { textAlign: 'center', fontWeight: 'bold', fontSize: '1.1rem', letterSpacing: 1 },
+                    },
+                  }}
+                />
+
+                <Button
+                  fullWidth
+                  variant="contained"
+                  onClick={startExam}
+                  disabled={startInput.trim().toLowerCase() !== 'start'}
+                  sx={{
+                    py: 1.8, borderRadius: '14px', fontWeight: '800', fontSize: '1rem', bgcolor: '#10B981',
+                    textTransform: 'none', boxShadow: startInput.trim().toLowerCase() === 'start' ? '0 8px 20px rgba(16, 185, 129, 0.4)' : 'none',
+                    '&:hover': { bgcolor: '#059669' },
+                  }}
+                >
+                  Start Exam Now
+                </Button>
+              </Box>
+            )}
           </DialogContent>
         </Dialog>
 
         {/* ================= HARDWARE ERROR POPUP ================= */}
-        {/* ADDED CRITICAL Z-INDEX HERE */}
         <Dialog
           open={hardwareIssue.missing}
-          sx={{ zIndex: 9999999 }} // <--- THIS ENSURES IT OVERRIDES THE MAIN BOX
+          sx={{ zIndex: 9999999 }}
           PaperProps={{
             sx: {
               borderRadius: '24px',
@@ -896,7 +989,7 @@ export default function TestPage() {
               fullWidth
               onClick={() => {
                 setHardwareIssue({ missing: false, type: '', message: '' });
-                runAllDiagnostics(); // Force re-scan to clear the block safely
+                runAllDiagnostics(); 
               }}
               sx={{ py: 1.5, borderRadius: '12px', bgcolor: '#EF4444', fontWeight: 'bold', '&:hover': { bgcolor: '#DC2626' } }}
             >
@@ -906,11 +999,10 @@ export default function TestPage() {
         </Dialog>
 
         {/* ================= MOBILE RESTRICTION POPUP ================= */}
-        {/* ADDED CRITICAL Z-INDEX HERE */}
         <Dialog
           open={isMobileRestricted}
           fullScreen
-          sx={{ zIndex: 9999999 }} // <--- THIS ENSURES IT OVERRIDES THE MAIN BOX
+          sx={{ zIndex: 9999999 }}
           PaperProps={{
             sx: {
               bgcolor: isDark ? '#000000' : '#F8FAFC',

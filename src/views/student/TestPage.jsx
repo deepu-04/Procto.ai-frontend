@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Editor } from '@monaco-editor/react';
+import axios from 'axios';
+import axiosInstance from '../../axios';
 import {
   Box,
   CircularProgress,
@@ -7,9 +10,9 @@ import {
   Typography,
   Modal,
   LinearProgress,
-  FormControl,
   Select,
   MenuItem,
+  FormControl,
 } from '@mui/material';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded';
@@ -17,15 +20,44 @@ import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import VpnLockIcon from '@mui/icons-material/VpnLock';
 import RouterIcon from '@mui/icons-material/Router';
+import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import BookmarkIcon from '@mui/icons-material/Bookmark';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
+import TerminalIcon from '@mui/icons-material/Terminal';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
 import MicOffIcon from '@mui/icons-material/MicOff';
-import WebCam from './Components/WebCam';
-import { useGetExamsQuery, useGetQuestionsQuery } from '../../slices/examApiSlice';
-import { useSaveCheatingLogMutation } from '../../slices/cheatingLogApiSlice';
+import WebCam from '../student/Components/WebCam';
+
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
+
+import { useGetExamsQuery, useGetQuestionsQuery } from '../../slices/examApiSlice';
+import { useSaveCheatingLogMutation } from '../../slices/cheatingLogApiSlice';
 import { useCheatingLog } from '../../context/CheatingLogContext';
-import axiosInstance from '../../axios';
+
+import {
+  IconVideo,
+  IconMicrophone,
+  IconWifi,
+  IconApps,
+  IconCircleCheckFilled,
+  IconAlertCircleFilled,
+  IconLoader2,
+  IconShieldCheck,
+  IconScanEye,
+} from '@tabler/icons-react';
+
+/* ================= CONFIG & BOILERPLATE ================= */
+const LANGUAGE_TEMPLATES = {
+  c: '#include <stdio.h>\n\nint main() {\n    // Write your C code here\n    printf("Hello, World!\\n");\n    return 0;\n}\n',
+  cpp: '#include <iostream>\n\nint main() {\n    // Write your C++ code here\n    std::cout << "Hello, World!" << std::endl;\n    return 0;\n}\n',
+  javascript: '// Write your JavaScript code here\nconsole.log("Hello, World!");\n',
+  python: '# Write your Python code here\nprint("Hello, World!")\n',
+  java: 'public class Main {\n    public static void main(String[] args) {\n        // Write your Java code here\n        System.out.println("Hello, World!");\n    }\n}\n',
+};
 
 // --- Dynamic Screen Watermarking ---
 const WatermarkOverlay = ({ userInfo }) => {
@@ -34,31 +66,13 @@ const WatermarkOverlay = ({ userInfo }) => {
     <Box
       sx={{
         position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        pointerEvents: 'none',
-        zIndex: 99999,
-        opacity: 0.03,
-        display: 'flex',
-        flexWrap: 'wrap',
-        overflow: 'hidden',
-        userSelect: 'none',
+        top: 0, left: 0, width: '100vw', height: '100vh',
+        pointerEvents: 'none', zIndex: 99999, opacity: 0.03,
+        display: 'flex', flexWrap: 'wrap', overflow: 'hidden', userSelect: 'none',
       }}
     >
       {Array.from({ length: 50 }).map((_, i) => (
-        <Typography
-          key={i}
-          sx={{
-            transform: 'rotate(-30deg)',
-            whiteSpace: 'nowrap',
-            fontSize: '1.5rem',
-            p: 4,
-            color: 'black',
-            fontWeight: 'bold',
-          }}
-        >
+        <Typography key={i} sx={{ transform: 'rotate(-30deg)', whiteSpace: 'nowrap', fontSize: '1.5rem', p: 4, color: 'black', fontWeight: 'bold' }}>
           {watermarkText}
         </Typography>
       ))}
@@ -66,11 +80,19 @@ const WatermarkOverlay = ({ userInfo }) => {
   );
 };
 
-const TestPage = () => {
+// --- 3D Popup Animation Styles ---
+const modal3DStyle = {
+  bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center',
+  boxShadow: '0px 20px 40px rgba(0,0,0,0.4), 0px 0px 0px 1px rgba(255,255,255,0.1) inset',
+  transform: 'scale(1)', animation: 'popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+  '@keyframes popIn': { '0%': { transform: 'scale(0.8)', opacity: 0 }, '100%': { transform: 'scale(1)', opacity: 1 } },
+};
+
+export default function TestPage() {
   const { examId } = useParams();
   const navigate = useNavigate();
 
-  // Audio & Hardware Refs
+  // Proctoring Refs
   const heartbeatRef = useRef(null);
   const audioContextRef = useRef(null);
   const audioStreamRef = useRef(null);
@@ -78,8 +100,11 @@ const TestPage = () => {
   const audioAnimationRef = useRef(null);
   const susTimerRef = useRef(null);
   const hardwareMonitorRef = useRef(null);
+  
+  // NEW REFS: Identity Verification
+  const hiddenVideoRef = useRef(null);
+  const faceCheckIntervalRef = useRef(null);
 
-  // Tracking Refs to prevent Infinite Loops & Toast Spam
   const lastKeyTimeRef = useRef(Date.now());
   const lastViolationTimesRef = useRef({});
   const loggedViolationsRef = useRef(new Set());
@@ -95,17 +120,29 @@ const TestPage = () => {
   const { userInfo } = useSelector((state) => state.auth || {});
 
   const [questions, setQuestions] = useState([]);
-  const {
-    data: questionsData,
-    isLoading: isQuestionsLoading,
-  } = useGetQuestionsQuery(examId);
+  const { data: questionsData, isLoading: isQuestionsLoading } = useGetQuestionsQuery(examId);
   const { data: userExamdata, isLoading: isExamsLoading } = useGetExamsQuery();
 
-  // States
+  // Global States
   const [examDurationInSeconds, setExamDurationInSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenStrikes, setFullscreenStrikes] = useState(0);
+
+  // Section Transition States
+  const [sectionSwitchModal, setSectionSwitchModal] = useState(false);
+  const [targetSection, setTargetSection] = useState('coding');
+  const [currentSection, setCurrentSection] = useState('mcq');
+
+  // Question UI State
+  const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
+  const [answers, setAnswers] = useState(() => {
+    const saved = localStorage.getItem(`mcq_state_${examId}`);
+    return saved ? JSON.parse(saved) : {};
+  });
+  
+  const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
+  const [revisitQuestions, setRevisitQuestions] = useState(new Set());
 
   // Security States
   const [isSuspiciousEnv, setIsSuspiciousEnv] = useState(false);
@@ -113,15 +150,11 @@ const TestPage = () => {
   const [vpnDetected, setVpnDetected] = useState(false);
   const [multipleIpDetected, setMultipleIpDetected] = useState(false);
   const [hardwareIssue, setHardwareIssue] = useState({ missing: false, type: '', message: '' });
-
-  // Dynamic Blur & Darkness States
   const [blurIntensity, setBlurIntensity] = useState(0);
   const [darknessLevel, setDarknessLevel] = useState(0);
-
-  // Section Transition States
-  const [sectionSwitchModal, setSectionSwitchModal] = useState(false);
-  const [targetSection, setTargetSection] = useState('coding');
-  const [currentSection, setCurrentSection] = useState('mcq');
+  
+  // NEW STATE: Identity Verification
+  const [personMismatch, setPersonMismatch] = useState(false);
 
   // Real-time indicators
   const [riskScore, setRiskScore] = useState(0);
@@ -130,17 +163,7 @@ const TestPage = () => {
   const [hasShownTrustModal, setHasShownTrustModal] = useState(false);
   const [sessionEvents, setSessionEvents] = useState([]);
 
-  // Question UI State
-  const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
-  
-  // Try to load pre-existing answers from localStorage if they refreshed the page
-  const [answers, setAnswers] = useState(() => {
-    const saved = localStorage.getItem(`mcq_state_${examId}`);
-    return saved ? JSON.parse(saved) : {};
-  });
-  
-  const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
-
+  /* ================= DATA INITIALIZATION ================= */
   useEffect(() => {
     cheatingLogRef.current = cheatingLog || {};
   }, [cheatingLog]);
@@ -148,49 +171,50 @@ const TestPage = () => {
   useEffect(() => {
     if (Array.isArray(userExamdata)) {
       const exam = userExamdata.find((e) => e.examId === examId || e._id === examId);
-      if (exam?.duration) {
-        setExamDurationInSeconds(exam.duration * 60);
-      }
+      if (exam?.duration) setExamDurationInSeconds(exam.duration * 60);
     }
   }, [userExamdata, examId]);
 
   // ================= CRITICAL FIX: BULLETPROOF MCQ FILTER =================
   useEffect(() => {
-    let loadedQuestions = [];
-    if (Array.isArray(questionsData)) {
-      loadedQuestions = questionsData;
-    } else if (questionsData && Array.isArray(questionsData.questions)) {
-      loadedQuestions = questionsData.questions;
-    } else if (questionsData && Array.isArray(questionsData.data)) {
-      loadedQuestions = questionsData.data;
-    } else if (questionsData && Array.isArray(questionsData.results)) {
-      loadedQuestions = questionsData.results;
-    }
+    if (!questionsData) return;
 
-    const mcqOnly = loadedQuestions.filter((q) => {
+    let extractedQuestions = [];
+    if (Array.isArray(questionsData)) extractedQuestions = questionsData;
+    else if (Array.isArray(questionsData.questions)) extractedQuestions = questionsData.questions;
+    else if (Array.isArray(questionsData.data)) extractedQuestions = questionsData.data;
+    else if (Array.isArray(questionsData.data?.questions)) extractedQuestions = questionsData.data.questions;
+    else if (Array.isArray(questionsData.results)) extractedQuestions = questionsData.results;
+
+    const mcqOnly = extractedQuestions.filter((q) => {
       const isCodingSection = q.section === 'coding' || q.type === 'coding';
       const hasTestCases = q.testCases && q.testCases.length > 0;
-      // If it's a coding section OR it has test cases, EXCLUDE IT from this page.
       return !isCodingSection && !hasTestCases; 
     });
 
     setQuestions(mcqOnly);
   }, [questionsData]);
 
-  // --- ANTI-SPAM AUTO SUBMIT ---
+  /* ================= PROCTORING LOGIC ================= */
   useEffect(() => {
     if (riskScore >= 100 && !hasAutoSubmittedRef.current) {
       hasAutoSubmittedRef.current = true;
-      toast.error('System Integrity critical. Auto-submitting exam.');
+      toast.error("System Integrity critical. Auto-submitting exam.");
       handleTestSubmission();
     }
   }, [riskScore]);
 
-  // --- Trust Indicator Logic ---
   const getTrustColor = () => {
     if (trustScore > 50) return '#22C55E';
     if (trustScore > 20) return '#FACC15';
     return '#EF4444';
+  };
+
+  const getTrustEmoji = () => {
+    if (trustScore > 80) return '😇';
+    if (trustScore > 50) return '😐';
+    if (trustScore > 20) return '😟';
+    return '😡';
   };
 
   useEffect(() => {
@@ -200,9 +224,8 @@ const TestPage = () => {
     }
   }, [trustScore, hasShownTrustModal]);
 
-  // --- Active Countdown Timer ---
   useEffect(() => {
-    if (!isFullscreen || networkIssue || vpnDetected || multipleIpDetected || isSuspiciousEnv || hardwareIssue.missing)
+    if (!isFullscreen || networkIssue || vpnDetected || multipleIpDetected || isSuspiciousEnv || hardwareIssue.missing || personMismatch)
       return;
     const timer = setInterval(() => {
       setExamDurationInSeconds((prev) => {
@@ -218,9 +241,8 @@ const TestPage = () => {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [isFullscreen, networkIssue, vpnDetected, multipleIpDetected, isSuspiciousEnv, hardwareIssue.missing]);
+  }, [isFullscreen, networkIssue, vpnDetected, multipleIpDetected, isSuspiciousEnv, hardwareIssue.missing, personMismatch]);
 
-  // --- STABLE REGISTRATION ---
   const registerViolation = useCallback(
     (type, message, severity = 'critical', weight = 20) => {
       const now = Date.now();
@@ -240,12 +262,7 @@ const TestPage = () => {
       updateCheatingLog({ [type]: (cheatingLogRef.current[type] || 0) + 1 });
 
       setSessionEvents((prev) => [
-        {
-          type: type.replace(/_/g, ' ').toUpperCase(),
-          message,
-          time: new Date().toLocaleTimeString(),
-          severity,
-        },
+        { type: type.replace(/_/g, ' ').toUpperCase(), message, time: new Date().toLocaleTimeString(), severity },
         ...prev,
       ]);
 
@@ -255,7 +272,6 @@ const TestPage = () => {
     [updateCheatingLog]
   );
 
-  // --- DYNAMIC Object Detection & Screen Darkening ---
   const handleObjectDetection = useCallback(
     (item, distanceScale = 0.8) => {
       const dynamicBlur = distanceScale * 30;
@@ -280,7 +296,6 @@ const TestPage = () => {
   // --- HARDWARE LEVEL MEDIA LOCKS (Keyboard / OS Mute Detection) ---
   const setupMediaTrackListeners = useCallback((stream, type) => {
     stream.getTracks().forEach((track) => {
-      // Listener for physical/OS mute buttons
       track.onmute = () => {
         setHardwareIssue({
           missing: true,
@@ -290,12 +305,10 @@ const TestPage = () => {
         registerViolation('HARDWARE_MUTED', `${type} muted at OS level`, 'critical', 30);
       };
 
-      // Listener for when track becomes active again
       track.onunmute = () => {
         setHardwareIssue({ missing: false, type: '', message: '' });
       };
 
-      // Listener for complete physical disconnection (unplugging)
       track.onended = () => {
         setHardwareIssue({
           missing: true,
@@ -307,7 +320,6 @@ const TestPage = () => {
     });
   }, [registerViolation]);
 
-  // FIX: Stable hardware validation to stop false positive "Mic Muted" issues
   const monitorHardwareDevices = useCallback(async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -323,16 +335,17 @@ const TestPage = () => {
         });
         registerViolation('HARDWARE_DISCONNECT', 'Media devices disconnected', 'critical', 40);
       } else {
-        // Deep Check streams. Wait 1 tick for browser states to update properly.
-        const isAudioDead = audioStreamRef.current && audioStreamRef.current.getTracks().length > 0 && audioStreamRef.current.getTracks().every(t => t.readyState === 'ended');
-        const isVideoDead = videoStreamRef.current && videoStreamRef.current.getTracks().length > 0 && videoStreamRef.current.getTracks().every(t => t.readyState === 'ended');
+        const isAudioDead = audioStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
+        const isVideoDead = videoStreamRef.current?.getTracks().every(track => track.readyState === 'ended' || track.muted);
 
         if (isAudioDead || isVideoDead) {
           setHardwareIssue({
             missing: true,
             type: isAudioDead ? 'audio' : 'video',
-            message: `Your ${isAudioDead ? 'Microphone' : 'Camera'} stream ended unexpectedly.`,
+            message: `Your ${isAudioDead ? 'Microphone' : 'Camera'} is currently muted or blocked by another application.`,
           });
+        } else {
+          setHardwareIssue({ missing: false, type: '', message: '' });
         }
       }
     } catch (err) {
@@ -342,7 +355,7 @@ const TestPage = () => {
 
   useEffect(() => {
     navigator.mediaDevices.addEventListener('devicechange', monitorHardwareDevices);
-    hardwareMonitorRef.current = setInterval(monitorHardwareDevices, 10000);
+    hardwareMonitorRef.current = setInterval(monitorHardwareDevices, 5000);
 
     return () => {
       navigator.mediaDevices.removeEventListener('devicechange', monitorHardwareDevices);
@@ -388,7 +401,7 @@ const TestPage = () => {
     return () => pc.close();
   }, [isFullscreen, registerViolation]);
 
-  // --- Realtime Public IP Monitor (VPN Check) ---
+  // --- Realtime Public IP Monitor ---
   const monitorPublicIP = async () => {
     try {
       const res = await fetch('https://api.ipify.org?format=json');
@@ -407,7 +420,7 @@ const TestPage = () => {
         );
       }
     } catch (err) {
-      console.log('IP Monitor skipped due to adblocker/network issue');
+      console.log('IP Monitor skipped');
     }
   };
 
@@ -569,33 +582,87 @@ const TestPage = () => {
     };
   }, [isFullscreen, registerViolation, setupMediaTrackListeners]);
 
-  // VPN AND PUBLIC IP REALTIME CHECKING
+  // ================= NEW: IDENTITY VERIFICATION LOGIC =================
+  useEffect(() => {
+    if (isFullscreen && hiddenVideoRef.current && videoStreamRef.current) {
+      // Bind existing webcam stream to hidden video element for fast capturing
+      hiddenVideoRef.current.srcObject = videoStreamRef.current;
+    }
+  }, [isFullscreen]);
+
+  useEffect(() => {
+    const verifyFaceMatch = async () => {
+      if (!isFullscreen || !hiddenVideoRef.current || !videoStreamRef.current) return;
+      
+      const baselineImage = sessionStorage.getItem('student_verification_image');
+      if (!baselineImage) return; // Skip if no baseline was captured
+
+      try {
+        const video = hiddenVideoRef.current;
+        if (video.videoWidth === 0) return; // Video not loaded yet
+
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        const currentImage = canvas.toDataURL('image/jpeg', 0.5);
+
+        // API Call to Backend for Face Comparison
+        const res = await axiosInstance.post('/api/proctoring/verify-face', {
+          examId,
+          baselineImage,
+          currentImage
+        });
+
+        // Backend should return { match: true/false }
+        if (res.data && res.data.match === false) {
+          setPersonMismatch(true);
+          registerViolation('PERSON_MISMATCH', 'Identity mismatch detected. Unrecognized person.', 'critical', 40);
+        } else if (res.data && res.data.match === true) {
+          setPersonMismatch(false);
+        }
+      } catch (err) {
+        // Silently catch errors so exam isn't interrupted if ping fails temporarily
+        console.warn('Face verification ping failed or endpoint not found.');
+      }
+    };
+
+    if (isFullscreen) {
+      faceCheckIntervalRef.current = setInterval(verifyFaceMatch, 5000); // Check every 5 seconds
+    }
+
+    return () => {
+      if (faceCheckIntervalRef.current) clearInterval(faceCheckIntervalRef.current);
+    };
+  }, [isFullscreen, examId, registerViolation]);
+
+
   const handleStartExam = async () => {
     try {
       if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
       setIsFullscreen(true);
       localStorage.setItem('examInProgress', examId);
 
-      // Verify VPN/Proxy instantly upon starting via external API logic
       await monitorPublicIP();
 
-      // Start Heartbeat for backend proxy checking
       heartbeatRef.current = setInterval(async () => {
         if (!navigator.onLine) return;
-        monitorPublicIP(); // Secondary IP poll
+        monitorPublicIP();
 
         try {
           const res = await axiosInstance.get('/network/check');
           const result = res.data;
           
-          if (result && (result.vpnDetected === true || result.ipChanged === true)) {
+          if (result && (result.vpnDetected === true || result.networkRisk?.vpn === true)) {
             setVpnDetected(true);
-            registerViolation('VPN_DETECTED', 'Active VPN or network routing change detected', 'critical', 40);
-          } else if (result && result.networkRisk?.risk >= 85) {
+            registerViolation('VPN_DETECTED', 'Active VPN or Proxy detected by backend', 'critical', 40);
+          } else if (result && (result.networkRisk?.risk >= 85 || result.ipChanged === true)) {
             registerViolation('NETWORK_RISK', 'Suspicious network routing', 'high', 25);
           }
         } catch (err) {
-            // Silently fail if endpoint is down to avoid crashing exam
+            // Silently fail if endpoint is down
         }
       }, 10000);
     } catch {
@@ -605,7 +672,9 @@ const TestPage = () => {
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement && !hasAutoSubmittedRef.current) {
+      if (!document.fullscreenElement) {
+        if (hasAutoSubmittedRef.current || isSubmitting) return;
+
         setIsFullscreen(false);
         const newStrikes = fullscreenStrikes + 1;
         setFullscreenStrikes(newStrikes);
@@ -625,7 +694,7 @@ const TestPage = () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     };
-  }, [fullscreenStrikes, registerViolation]);
+  }, [fullscreenStrikes, registerViolation, isSubmitting]);
 
   // --- GET FORMATTED RESPONSES HELPER ---
   const getFormattedResponses = useCallback(() => {
@@ -705,18 +774,14 @@ const TestPage = () => {
     setSectionSwitchModal(true);
   };
 
-  // --- THIS FUNCTION NOW ACTUALLY ROUTES TO CODING ---
   const confirmSectionSwitch = () => {
     setSectionSwitchModal(false); 
     
     if (targetSection === 'submit') {
       handleTestSubmission();
     } else if (targetSection === 'coding') {
-      // 1. SAVE THE MCQ ANSWERS TO LOCALSTORAGE BEFORE ROUTING
       const userResponses = getFormattedResponses();
       localStorage.setItem(`mcq_answers_${examId}`, JSON.stringify(userResponses));
-      
-      // 2. NAVIGATE TO THE CODING PAGE
       navigate(`/exam/${examId}/code`);
     }
   };
@@ -737,7 +802,6 @@ const TestPage = () => {
   const handleAnswerChange = (value) => {
     const newAnswers = { ...answers, [currentQuestionIdx]: value };
     setAnswers(newAnswers);
-    // Back up the current raw state
     localStorage.setItem(`mcq_state_${examId}`, JSON.stringify(newAnswers));
   };
 
@@ -764,7 +828,6 @@ const TestPage = () => {
       </Box>
     );
 
-  // --- EMPTY STATE HANDLING (IF NO MCQs EXIST) ---
   if (questions.length === 0 && !isQuestionsLoading) {
     return (
       <Box minHeight="100vh" display="flex" flexDirection="column" justifyContent="center" alignItems="center" gap={3}>
@@ -780,6 +843,7 @@ const TestPage = () => {
     );
   }
 
+  /* ================= UI RENDER ================= */
   return (
     <Box
       sx={{
@@ -797,6 +861,23 @@ const TestPage = () => {
         zIndex: 9999,
       }}
     >
+      {/* Hidden video element for continuous face frame capture */}
+      <video ref={hiddenVideoRef} autoPlay muted playsInline style={{ display: 'none' }} />
+
+      {/* --- NEW: IDENTITY VERIFICATION FAILED MODAL --- */}
+      <Modal open={personMismatch && !hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}>
+        <Box sx={modal3DStyle}>
+          <IconScanEye size={60} color="#EF4444" style={{ marginBottom: '8px' }} />
+          <Typography variant="h5" fontWeight={700} mb={2} color="error">Identity Verification Failed</Typography>
+          <Typography variant="body2" color="textSecondary" mb={3}>
+            The system detected a different person taking the exam. Please ensure only the registered student is in front of the camera.
+          </Typography>
+          <Button variant="contained" color="error" fullWidth onClick={() => setPersonMismatch(false)} sx={{ py: 1.5, borderRadius: 1.5 }}>
+            I Understand
+          </Button>
+        </Box>
+      </Modal>
+
       {/* --- HARDWARE ISSUE MODAL --- */}
       <Modal open={hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999 }}>
         <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
@@ -1144,6 +1225,4 @@ const TestPage = () => {
       )}
     </Box>
   );
-};
-
-export default TestPage;
+}
