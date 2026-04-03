@@ -22,7 +22,7 @@ import {
 // =========================================================================
 // IMPORTANT: Replace with your actual Gemini API Key in .env
 // =========================================================================
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyCJnPTe_GDsFwaIeoOHef5jK6yQvXWcZ0U";
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyCF45Pld4UlwEaxIg5dxKFETSZwN1xs9iI";
 
 /* ================= AMBIENT BACKGROUND GLOWS ================= */
 const AmbientBackground = () => (

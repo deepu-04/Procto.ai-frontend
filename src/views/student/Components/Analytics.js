@@ -18,11 +18,9 @@ import {
 } from '@mui/icons-material';
 
 import PageContainer from 'src/components/container/PageContainer';
-// ✅ Correct path
-// ✅ Correct! Looking in the 'src' folder
-import axiosInstance from '../../../axios';// FIX: Imported your secure axios instance
+import axiosInstance from '../../../axios'; // Ensure this path is correct
 
-/* ================= DEMO DATA ================= */
+/* ================= DEMO DATA (FALLBACK) ================= */
 const DEMO_PERFORMANCE = [
   { month: 'Jan', score: 55 }, { month: 'Feb', score: 62 },
   { month: 'Mar', score: 70 }, { month: 'Apr', score: 68 },
@@ -82,11 +80,12 @@ export default function Analytics() {
   }, []);
 
   // =========================================================
-  // 2. LIVE DATA FETCHING
+  // 2. LIVE DATA FETCHING (BULLETPROOF VERSION)
   // =========================================================
   const fetchLiveAnalytics = useCallback(async () => {
     try {
       setIsFetching(true);
+      setError(null); // Clear previous errors
       
       const storedUserId = localStorage.getItem("userId");
       let parsedUser = null;
@@ -100,7 +99,6 @@ export default function Analytics() {
         console.warn("Failed to parse userInfo from localStorage", e);
       }
 
-      // Prioritize the direct "userId", fallback to parsed user IDs
       const userId = storedUserId || parsedUser?._id || parsedUser?.id; 
 
       if (!userId) {
@@ -109,31 +107,99 @@ export default function Analytics() {
         return; 
       }
 
-      // FIX: Grab token and use axiosInstance to securely call the hosted backend, not localhost!
       const token = localStorage.getItem('token');
-      const response = await axiosInstance.get(`/api/user/analytics-dashboard?userId=${userId}`, {
+      
+      // Fetch user results
+      const response = await axiosInstance.get(`/api/results/user/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      // Robust extraction in case the backend wraps it in 'data.data'
-      const data = response.data?.data || response.data;
+      // Robust unpacking: Handles { data: [] }, { results: [] }, or just []
+      let results = response.data?.data || response.data?.results || response.data;
+      if (response.data && Array.isArray(response.data) && !Array.isArray(results)) {
+        results = response.data;
+      }
       
-      if (data && (data.history || data.exams)) {
-        if (data.history?.length > 0) setPerformanceData(data.history);
-        if (data.gaps?.length > 0) setSkillGapData(data.gaps.map(item => ({ ...item, actual: item.actual ?? 0 })));
-        if (data.exams?.length > 0) setRecentExams(data.exams);
+      if (Array.isArray(results) && results.length > 0) {
         
-        setTotalExamsCount(data.stats?.totalExams || data.exams?.length || 0);
-        setAverageScore(data.stats?.avgScore || 0);
+        // 1. Process Performance History
+        const historyMap = {};
+        let totalScoreSum = 0;
+
+        const formattedExams = results.map((res, index) => {
+          // Robust score extraction fallback
+          const actualScore = Number(res.percentage ?? res.totalScore ?? res.score ?? 0);
+          totalScoreSum += actualScore;
+          
+          const dateObj = new Date(res.createdAt || res.date || Date.now());
+          const monthName = dateObj.toLocaleString('default', { month: 'short' });
+          const key = `${monthName} ${dateObj.getDate()}`; // e.g., "Oct 15"
+          
+          historyMap[key] = actualScore;
+
+          return {
+            id: String(res.examId || res._id || `EXAM-${index+1}`).substring(0, 8),
+            name: res.examName || res.title || `Assessment ${index+1}`,
+            score: actualScore,
+            status: actualScore >= 60 ? 'Passed' : 'Needs Review',
+            date: dateObj.toLocaleDateString()
+          };
+        });
+
+        const realHistory = Object.keys(historyMap).map(key => ({
+          month: key,
+          score: historyMap[key]
+        }));
+
+        // 2. Process Skill Gaps safely
+        const realSkillsMap = {};
+        formattedExams.forEach(exam => {
+            let subject = "General Tech";
+            const examNameLower = (exam.name || "").toLowerCase();
+            
+            if (examNameLower.includes('java')) subject = "Java";
+            else if (examNameLower.includes('python')) subject = "Python";
+            else if (examNameLower.includes('react')) subject = "React.js";
+            else if (examNameLower.includes('sql') || examNameLower.includes('database')) subject = "SQL";
+            else if (examNameLower.includes('node') || examNameLower.includes('express')) subject = "Node.js";
+            
+            if(!realSkillsMap[subject]) {
+                realSkillsMap[subject] = { sum: 0, count: 0 };
+            }
+            realSkillsMap[subject].sum += exam.score;
+            realSkillsMap[subject].count += 1;
+        });
+
+        const realSkillGaps = Object.keys(realSkillsMap).map(subject => ({
+            subject: subject,
+            actual: Math.round(realSkillsMap[subject].sum / realSkillsMap[subject].count),
+            expected: 85 // Benchmark
+        }));
+
+        // Update UI
+        setPerformanceData(realHistory.slice(-6));
+        setSkillGapData(realSkillGaps.length > 0 ? realSkillGaps : DEMO_SKILLS);
+        setRecentExams(formattedExams.reverse().slice(0, 5));
+        setTotalExamsCount(results.length);
+        setAverageScore(Math.round(totalScoreSum / results.length));
         
         setIsLiveData(true);
         setError(null);
+
       } else {
-        setError("No live AI exams found for your account. Showing demo graphs.");
+        // Safe Empty State
+        setError("You haven't completed any exams yet. Complete an assessment to see real data.");
+        setIsLiveData(false);
       }
     } catch (err) {
-      setError("Unable to connect to AI server. Displaying demo graphs.");
+      // Graceful error handling (Checks if it's a 404 meaning "No Data" vs a Server Crash)
+      if (err.response?.status === 404) {
+        setError("No exam records found in the database. Complete an exam to unlock real data!");
+      } else {
+        setError("Unable to sync with live server. Displaying offline demo data.");
+      }
       console.error("Analytics fetch error:", err);
+      setIsLiveData(false);
     } finally {
       setIsFetching(false);
     }
@@ -155,8 +221,8 @@ export default function Analytics() {
     const best = [...skillGapData].sort((a, b) => b.actual - a.actual)[0];
 
     return {
-      criticalGap: (worst.expected - worst.actual > 0) ? worst.subject : 'None',
-      topStrength: best.subject || 'N/A'
+      criticalGap: (worst && (worst.expected - worst.actual > 0)) ? worst.subject : 'None',
+      topStrength: best ? best.subject : 'N/A'
     };
   };
 
@@ -175,13 +241,15 @@ export default function Analytics() {
       
       let insightText = "";
       
-      if (worst && (worst.expected - worst.actual > 10)) {
+      if (!isLiveData) {
+          insightText = "*(Demo Mode Active)* Complete your first assessment to unlock personalized AI coaching. The system will analyze your true strengths, map skill gaps, and provide actionable feedback. ";
+      } else if (worst && (worst.expected - worst.actual > 10)) {
         insightText += `System detects a **${worst.expected - worst.actual}% skill gap** in **${worst.subject}**. To improve outcomes, prioritize studying this subject. I recommend taking targeted practice exams focusing specifically on ${worst.subject} fundamentals. `;
       } else {
         insightText += `Excellent trajectory. You are meeting or exceeding benchmarks across all tested subjects. `;
       }
 
-      if (best) {
+      if (best && isLiveData) {
         insightText += `Your strongest technical domain is **${best.subject}** with a proficiency of **${best.actual}%**. To maximize your career profile, consider highlighting ${best.subject} projects on your resume.`;
       }
 
@@ -205,9 +273,9 @@ export default function Analytics() {
     const summaryWS = XLSX.utils.json_to_sheet([
       { Metric: "Data Source", Value: isLiveData ? "Live Database" : "Demo Data" },
       { Metric: "Generated At", Value: currentDateTime.toLocaleString() },
-      { Metric: "Total AI Exams", Value: totalExamsCount },
-      { Metric: "Avg AI Score", Value: `${averageScore}%` },
-      { Metric: "Top AI Strength", Value: dynamicStats.topStrength },
+      { Metric: "Total Exams Taken", Value: totalExamsCount },
+      { Metric: "Avg Score", Value: `${averageScore}%` },
+      { Metric: "Top Strength", Value: dynamicStats.topStrength },
       { Metric: "Critical Gap Subject", Value: dynamicStats.criticalGap },
     ]);
     
@@ -220,7 +288,7 @@ export default function Analytics() {
     XLSX.utils.book_append_sheet(wb, summaryWS, "Overview");
     XLSX.utils.book_append_sheet(wb, skillWS, "Subject Proficiencies");
     XLSX.utils.book_append_sheet(wb, examWS, "Exam History");
-    XLSX.writeFile(wb, `AI_Exam_Analytics_${Date.now()}.xlsx`);
+    XLSX.writeFile(wb, `ProctoAI_Analytics_${Date.now()}.xlsx`);
   };
 
   // --- iOS Design Tokens ---
@@ -272,12 +340,13 @@ export default function Analytics() {
           </Stack>
         </Stack>
 
-        {error && <Alert severity="info" sx={{mb: 4, borderRadius: '12px'}}>{error}</Alert>}
+        {/* Warning/Info Alerts */}
+        {error && <Alert severity={isLiveData ? "info" : "warning"} sx={{ mb: 4, borderRadius: '12px' }}>{error}</Alert>}
 
         {/* KPI CARDS */}
         <Grid container spacing={3} mb={5}>
           {[
-            { label: "AI Exams Taken", val: totalExamsCount, icon: <TrackChangesRounded />, color: '#32D74B' },
+            { label: "Exams Taken", val: totalExamsCount, icon: <TrackChangesRounded />, color: '#32D74B' },
             { label: "Average Score", val: `${averageScore}%`, icon: <TrendingUpRounded />, color: '#0A84FF' },
             { label: "Critical Subject Gap", val: dynamicStats.criticalGap, icon: <WarningAmberRounded />, color: '#FF9F0A' },
             { label: "Top Subject Strength", val: dynamicStats.topStrength, icon: <LightbulbCircleOutlined />, color: '#BF5AF2' },
@@ -318,7 +387,7 @@ export default function Analytics() {
             <Button 
               variant="outlined" 
               onClick={generateAiAnalysis}
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || isFetching}
               sx={{ borderRadius: '12px', borderColor: themeConfig.border, color: themeConfig.text, textTransform: 'none', fontWeight: 600, '&:hover': { bgcolor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } }}
             >
               Re-Analyze
@@ -341,7 +410,7 @@ export default function Analytics() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={themeConfig.gridLine} />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: themeConfig.secondaryText, fontSize: 12 }} />
-                  <YAxis hide />
+                  <YAxis hide domain={[0, 100]} />
                   <Tooltip contentStyle={{ borderRadius: '15px', backgroundColor: themeConfig.card, border: themeConfig.border, backdropFilter: themeConfig.glass, color: themeConfig.text }} />
                   <Area type="monotone" dataKey="score" stroke={themeConfig.accent} strokeWidth={4} fill="url(#colorScore)" animationDuration={1500} />
                 </AreaChart>
@@ -411,7 +480,7 @@ export default function Analytics() {
                       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 2 }}>
                         <Stack direction="row" spacing={2} alignItems="center">
                           <Avatar sx={{ bgcolor: isDark ? '#2C2C2E' : '#E5E5EA', color: themeConfig.accent, fontWeight: 800 }}>
-                            {exam.score ?? 0}
+                            {Math.round(exam.score ?? 0)}
                           </Avatar>
                           <Box>
                             <Typography sx={{ color: themeConfig.text, fontWeight: 600 }}>{exam.name}</Typography>

@@ -3,8 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
-// ✅ Correct! Looking in the 'src' folder
-import axiosInstance from '../../../axios'; // FIX: Imported secure axios instance
+import axiosInstance from '../../../axios'; 
 
 import WebCam from './WebCam'; 
 
@@ -12,6 +11,8 @@ import {
   Box, CircularProgress, Button, Typography, Modal,
   LinearProgress, Dialog, Slide
 } from '@mui/material';
+
+import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import WarningRoundedIcon from '@mui/icons-material/WarningRounded';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
@@ -19,6 +20,9 @@ import VideocamIcon from '@mui/icons-material/Videocam';
 import MicIcon from '@mui/icons-material/Mic';
 import WifiIcon from '@mui/icons-material/Wifi';
 import { DocumentTextIcon, PlayIcon, CheckBadgeIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid';
+
+import { useSaveCheatingLogMutation } from '../../../slices/cheatingLogApiSlice';
+import { useCheatingLog } from '../../../context/CheatingLogContext';
 
 const Transition = forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
@@ -79,6 +83,7 @@ export default function AiExam() {
     const saved = localStorage.getItem('procto_ai_exams');
     return saved ? JSON.parse(saved) : [];
   });
+  
   const [activeExam, setActiveExam] = useState(null); 
   const [examResult, setExamResult] = useState(null); 
   const [isDark, setIsDark] = useState(false);
@@ -88,6 +93,7 @@ export default function AiExam() {
 
   const [cheatingLog, setCheatingLog] = useState({});
   const cheatingLogRef = useRef({});
+  const [saveCheatingLogMutation] = useSaveCheatingLogMutation();
 
   const updateCheatingLog = useCallback((updates) => {
     setCheatingLog((prev) => {
@@ -116,6 +122,14 @@ export default function AiExam() {
   const [riskScore, setRiskScore] = useState(0);
   const trustScore = Math.max(0, 100 - riskScore);
   const [sessionEvents, setSessionEvents] = useState([]);
+  const [showTrustModal, setShowTrustModal] = useState(false);
+  const [hasShownTrustModal, setHasShownTrustModal] = useState(false);
+  const [vpnDetected, setVpnDetected] = useState(false);
+  const [multipleIpDetected, setMultipleIpDetected] = useState(false);
+  const [hardwareIssue, setHardwareIssue] = useState({ missing: false, type: '', message: '' });
+
+  const initialWebrtcIpRef = useRef(null);
+  const initialIpifyIpRef = useRef(null);
 
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -184,7 +198,7 @@ export default function AiExam() {
   const proceedToLiveExam = async () => {
     stopPreviewStream(); 
     setExamStage('exam');
-    setExamDurationInSeconds(activeExam.questions.length * 120); 
+    setExamDurationInSeconds((activeExam?.questions?.length || 0) * 120); 
     setCurrentQuestionIdx(0);
     setAnswers({});
     setVisitedQuestions(new Set([0]));
@@ -216,13 +230,87 @@ export default function AiExam() {
     toast.error(message);
   }, [updateCheatingLog, examStage]);
 
+  // =======================================================
+  // 🔥 DATABASE POST LOGIC (Fixed formatting and endpoint integration)
+  // =======================================================
+  const handleTestSubmission = useCallback(async () => {
+    if (isSubmitting || !activeExam) return;
+    setIsSubmitting(true);
+
+    let score = 0;
+    activeExam.questions.forEach((q, index) => {
+      if (answers[index] !== undefined && q.options[answers[index]] === q.correctAnswer) {
+        score += 1;
+      }
+    });
+
+    const totalQuestions = activeExam.questions.length || 0;
+    const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
+    const subjectName = activeExam.subject || activeExam.name || "General AI Exam";
+
+    // Format answers to an array so MongoDB doesn't crash on Object structure
+    const formattedAnswers = Object.entries(answers).map(([qIndex, selectedOpt]) => ({
+      questionText: activeExam.questions[qIndex]?.question,
+      selectedOption: selectedOpt,
+      isCorrect: activeExam.questions[qIndex]?.options[selectedOpt] === activeExam.questions[qIndex]?.correctAnswer
+    }));
+
+    try {
+      const token = localStorage.getItem('token');
+      // Ensure the route matches your server implementation for AI generated exams
+      await axiosInstance.post('/api/user/save-ai-result', { 
+        examId: activeExam.id, 
+        userId: userInfo?._id || userInfo?.id,
+        examName: activeExam.name || "AI Generated Exam",
+        subject: subjectName,
+        answers: formattedAnswers, 
+        totalMarks: totalQuestions,
+        score: score,
+        percentage: percentage,
+        trustScore: trustScore,
+        securityLog: sessionEvents,
+        feedback: `AI Exam: ${subjectName}. Trust Score: ${trustScore}%`
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true
+      });
+      
+      toast.success("Result synced to database successfully!");
+    } catch (error) {
+      console.error("Backend Rejected the Data. Reason:", error.response?.data || error.message);
+      toast.warning(`Sync Failed: ${error.response?.data?.message || 'Server Error'}`);
+    }
+
+    // Fallback UI update so user can still see results locally
+    const updatedExams = savedExams.map(ex => 
+      ex.id === activeExam.id ? { ...ex, completed: true, score: score, securityLog: sessionEvents } : ex
+    );
+    setSavedExams(updatedExams);
+    localStorage.setItem('procto_ai_exams', JSON.stringify(updatedExams));
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(err => console.log(err));
+    }
+
+    setExamResult({ score, total: totalQuestions, trust: trustScore });
+    setExamStage('result');
+    setIsSubmitting(false);
+  }, [activeExam, answers, isSubmitting, sessionEvents, trustScore, userInfo, savedExams]);
+
   useEffect(() => {
     if (riskScore >= 100 && !hasAutoSubmittedRef.current && examStage === 'exam') {
       hasAutoSubmittedRef.current = true;
       toast.error('System Integrity critical. Auto-submitting exam.');
       handleTestSubmission();
     }
-  }, [riskScore, examStage]);
+  }, [riskScore, examStage, handleTestSubmission]);
+
+  useEffect(() => {
+    if (trustScore <= 50 && !hasShownTrustModal && examStage === 'exam') {
+      setShowTrustModal(true);
+      setHasShownTrustModal(true);
+    }
+  }, [trustScore, hasShownTrustModal, examStage]);
 
   const handleObjectDetection = useCallback((item, distanceScale = 0.8) => {
     setBlurIntensity(distanceScale * 30);
@@ -254,7 +342,7 @@ export default function AiExam() {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [isFullscreen, networkIssue, isSuspiciousEnv, activeExam, examStage]);
+  }, [isFullscreen, networkIssue, isSuspiciousEnv, activeExam, examStage, handleTestSubmission]);
 
   useEffect(() => {
     if (examStage !== 'exam' || !isFullscreen || !activeExam) return;
@@ -285,6 +373,9 @@ export default function AiExam() {
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      document.removeEventListener('contextmenu', (e) => preventDefaultAction(e, 'SECURE_BROWSER', 'Right-click disabled', 5));
+      document.removeEventListener('copy', (e) => preventDefaultAction(e, 'SECURE_BROWSER', 'Copy disabled', 10));
+      document.removeEventListener('paste', (e) => preventDefaultAction(e, 'SECURE_BROWSER', 'Paste disabled', 10));
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('keydown', handleKeyDown);
@@ -309,74 +400,14 @@ export default function AiExam() {
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, [fullscreenStrikes, activeExam, registerViolation, examStage]);
-
-  // =======================================================
-  // 🔥 DATABASE POST LOGIC (Subject Tagging for Analytics)
-  // =======================================================
-  const handleTestSubmission = async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-
-    let score = 0;
-    activeExam.questions.forEach((q, index) => {
-      if (answers[index] !== undefined && q.options[answers[index]] === q.correctAnswer) {
-        score += 1;
-      }
-    });
-
-    const totalQuestions = activeExam.questions.length;
-    const percentage = Math.round((score / totalQuestions) * 100);
-    const subjectName = activeExam.subject || activeExam.name || "General AI Exam";
-
-    // 1. Post to Backend MongoDB
-    try {
-      // FIX: Changed from raw axios to axiosInstance to route securely to deployed backend
-      // Added authorization headers to prevent 401 Unauthorized blocks
-      const token = localStorage.getItem('token');
-      await axiosInstance.post('/api/user/save-ai-result', {
-        userId: userInfo?._id || userInfo?.id,
-        examName: activeExam.name || "AI Generated Exam",
-        subject: subjectName,
-        answers: answers,
-        totalMarks: totalQuestions,
-        score: score,
-        percentage: percentage,
-        trustScore: trustScore,
-        securityLog: sessionEvents,
-        feedback: `AI Exam: ${subjectName}. Trust Score: ${trustScore}%`
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
-        withCredentials: true
-      });
-      toast.success("Result synced to database successfully!");
-    } catch (error) {
-      console.error("Database Save Error:", error);
-      toast.warning("Result saved locally. Database sync failed.");
-    }
-
-    // 2. Fallback / History update for UI
-    const updatedExams = savedExams.map(ex => 
-      ex.id === activeExam.id ? { ...ex, completed: true, score: score, securityLog: sessionEvents } : ex
-    );
-    setSavedExams(updatedExams);
-    localStorage.setItem('procto_ai_exams', JSON.stringify(updatedExams));
-
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(err => console.log(err));
-    }
-
-    setExamResult({ score, total: totalQuestions, trust: trustScore });
-    setExamStage('result');
-    setIsSubmitting(false);
-  };
+  }, [fullscreenStrikes, activeExam, registerViolation, examStage, handleTestSubmission]);
 
   const handleSelectOption = (optIdx) => setAnswers((prev) => ({ ...prev, [currentQuestionIdx]: optIdx }));
   const getTrustColor = () => trustScore > 50 ? '#22C55E' : trustScore > 20 ? '#FACC15' : '#EF4444';
   const formatTime = (seconds) => new Date(seconds * 1000).toISOString().substr(11, 8);
 
   const currentQ = activeExam?.questions[currentQuestionIdx] || {};
-  const isLastQuestion = activeExam && currentQuestionIdx === activeExam.questions.length - 1;
+  const isLastQuestion = activeExam && currentQuestionIdx === (activeExam.questions?.length || 1) - 1;
 
   const CheckItem = ({ icon, title, status }) => (
     <Box display="flex" alignItems="center" justifyContent="space-between" p={2} mb={2} borderRadius={3} bgcolor={isDark ? 'rgba(255,255,255,0.05)' : '#F8FAFC'}>
@@ -440,9 +471,9 @@ export default function AiExam() {
                   </Box>
                   
                   <div className="mt-auto flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-4">
-                    <Typography variant="body2" fontWeight="bold" className="dark:text-white">{exam.questions.length} Questions</Typography>
+                    <Typography variant="body2" fontWeight="bold" className="dark:text-white">{exam.questions?.length || 0} Questions</Typography>
                     {exam.completed ? (
-                      <Typography variant="body2" fontWeight="bold" color="success.main">Score: {exam.score}/{exam.questions.length}</Typography>
+                      <Typography variant="body2" fontWeight="bold" color="success.main">Score: {exam.score}/{exam.questions?.length || 0}</Typography>
                     ) : (
                       <PlayIcon className="w-6 h-6 text-[#007AFF] dark:text-[#0A84FF]" />
                     )}
@@ -514,6 +545,19 @@ export default function AiExam() {
             </Box>
           </Modal>
 
+          <Modal open={showTrustModal && !networkIssue && !hardwareIssue.missing} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)', zIndex: 99999 }}>
+            <Box sx={{ bgcolor: 'white', borderRadius: 3, p: 5, width: 450, outline: 'none', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+              <HealthAndSafetyIcon sx={{ fontSize: 60, color: '#FACC15', mb: 1 }} />
+              <Typography variant="h5" fontWeight={700} mb={2}>Trust Score Warning</Typography>
+              <Typography variant="body2" color="textSecondary" mb={4}>
+                Your system integrity score has dropped to {trustScore}%. Multiple violations have been logged. Continued suspicious activity will result in automatic exam termination.
+              </Typography>
+              <Button variant="contained" fullWidth sx={{ bgcolor: '#4F46E5', py: 1.5, borderRadius: 1.5 }} onClick={() => setShowTrustModal(false)}>
+                I Understand
+              </Button>
+            </Box>
+          </Modal>
+
           {isFullscreen && (
             <>
               <WatermarkOverlay userInfo={userInfo} />
@@ -577,7 +621,7 @@ export default function AiExam() {
                       <Typography variant="h4" fontWeight="900" color={isDark ? 'white' : 'black'} mb={3}>{formatTime(examDurationInSeconds)}</Typography>
                       
                       <Box display="flex" flexWrap="wrap" gap={1.5}>
-                        {activeExam?.questions.map((_, i) => {
+                        {activeExam?.questions?.map((_, i) => {
                           let bgColor = isDark ? '#38383A' : '#E5E7EB';
                           let color = isDark ? 'white' : 'black';
                           if (answers[i] !== undefined) { bgColor = '#007AFF'; color = 'white'; }
@@ -638,7 +682,6 @@ export default function AiExam() {
         isDark={isDark} 
         onReturnToDashboard={() => setExamStage('dashboard')} 
       />
-
     </>
   );
 }
